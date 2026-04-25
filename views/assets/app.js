@@ -96,6 +96,24 @@ function clearLog() {
   if (badge) badge.textContent = '0';
 }
 
+function isMobileViewport() {
+  return window.innerWidth <= 980;
+}
+
+function closeSidebar() {
+  document.body.classList.remove('sidebar-open');
+}
+
+function openSidebar() {
+  if (!isMobileViewport()) return;
+  document.body.classList.add('sidebar-open');
+}
+
+function toggleSidebar() {
+  if (!isMobileViewport()) return;
+  document.body.classList.toggle('sidebar-open');
+}
+
 function applyAccounts(accounts = [], activeID = '') {
   waAccounts = Array.isArray(accounts) ? accounts : [];
   activeWAAccountId = activeID || (waAccounts[0]?.id || '');
@@ -424,6 +442,7 @@ function switchTab(tab) {
     loadAdminUsers();
     loadAdminAIConfig();
   }
+  closeSidebar();
 }
 
 // ===== WebSocket =====
@@ -1739,6 +1758,18 @@ document.addEventListener('DOMContentLoaded', () => {
   Promise.allSettled([loadCurrentUser(), loadAccounts()]).finally(() => {
     renderAPIDocsMeta();
     setTimeout(checkConnection, 500);
+  });
+
+  window.addEventListener('resize', () => {
+    if (!isMobileViewport()) {
+      closeSidebar();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeSidebar();
+    }
   });
 
   // Periodic status check

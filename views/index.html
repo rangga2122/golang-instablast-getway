@@ -13,6 +13,11 @@
 
   <header class="topbar" id="topbar">
     <div class="topbar-left">
+      <button class="mobile-menu-btn" id="mobileMenuBtn" onclick="toggleSidebar()" aria-label="Buka menu navigasi">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
       <div class="topbar-logo" aria-hidden="true">
         <img src="/icon.ico" alt="InstaBlast Pro" class="topbar-logo-image" />
       </div>
@@ -53,6 +58,8 @@
       <button class="topbar-btn" onclick="logoutApp()">Logout</button>
     </div>
   </header>
+
+  <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="closeSidebar()"></div>
 
   <div class="app-layout">
     <nav class="sidebar" id="sidebar">
