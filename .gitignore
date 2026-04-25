@@ -1,0 +1,9 @@
+storages/
+*.db
+*.db-wal
+*.db-shm
+.env
+*.log
+*.zip
+wa-gateway
+wa-gateway-linux-test

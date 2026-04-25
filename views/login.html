@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login - InstaBlast Pro</title>
+  <link rel="icon" href="/icon.ico" sizes="any" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#e9edef; --card:#fff; --fg:#111b21; --muted:#667781; --accent:#00a884; --border:#d1d7db; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Inter,sans-serif; background:radial-gradient(circle at top left, rgba(0,168,132,.16), transparent 30%), var(--bg); color:var(--fg); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+    .login-card { width:min(420px, 100%); background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:0 20px 50px rgba(17,27,33,.08); }
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+    .brand img { width:40px; height:40px; border-radius:10px; }
+    h1 { margin:0; font-size:28px; }
+    p { color:var(--muted); margin:8px 0 20px; }
+    label { display:block; font-size:13px; font-weight:600; margin:12px 0 6px; }
+    input { width:100%; border:1px solid var(--border); border-radius:10px; padding:12px 14px; font:inherit; }
+    button { width:100%; margin-top:18px; border:none; background:linear-gradient(135deg,#00a884,#25d366); color:#fff; padding:12px 14px; border-radius:10px; font:inherit; font-weight:700; cursor:pointer; }
+    .status { margin-top:14px; font-size:13px; min-height:20px; }
+    .hint { margin-top:16px; font-size:12px; color:var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="brand">
+      <img src="/icon.ico" alt="InstaBlast Pro" />
+      <div>
+        <h1>InstaBlast Pro</h1>
+        <div style="font-size:12px; color:#017561; font-weight:700;">Admin & User Login</div>
+      </div>
+    </div>
+    <form id="loginForm">
+      <label>Email</label>
+      <input id="email" type="email" placeholder="contoh@email.com" required />
+      <label>Password</label>
+      <input id="password" type="password" placeholder="Masukkan password" required />
+      <button type="submit">Masuk</button>
+    </form>
+    <div class="status" id="status"></div>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const status = document.getElementById('status');
+      status.textContent = 'Memproses login...';
+      status.style.color = '#667781';
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.getElementById('email').value.trim(),
+            password: document.getElementById('password').value
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Login gagal');
+        location.href = '/';
+      } catch (err) {
+        status.textContent = err.message;
+        status.style.color = '#ef4444';
+      }
+    });
+  </script>
+</body>
+</html>

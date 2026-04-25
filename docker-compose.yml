@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  wa-gateway:
+    build: .
+    container_name: wa-gateway
+    ports:
+      - "3000:3000"
+    volumes:
+      - wa-data:/app/storages
+    environment:
+      - APP_HOST=0.0.0.0
+      - APP_PORT=3000
+      - APP_DEBUG=false
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  wa-data:
+    driver: local

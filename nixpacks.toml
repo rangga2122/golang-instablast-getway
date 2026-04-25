@@ -1,0 +1,15 @@
+[variables]
+CGO_ENABLED = "0"
+GOFLAGS = "-buildvcs=false"
+
+[phases.install]
+cmds = ["go mod download"]
+
+[phases.build]
+cmds = [
+  "mkdir -p storages storages/qrcode storages/senditems storages/media",
+  "go build -o wa-gateway ."
+]
+
+[start]
+cmd = "./wa-gateway"

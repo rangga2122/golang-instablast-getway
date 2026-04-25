@@ -1,0 +1,11 @@
+.git
+.gitignore
+storages
+wa-gateway.stdout.log
+wa-gateway.stderr.log
+*.db
+*.db-shm
+*.db-wal
+node_modules
+tmp
+dist

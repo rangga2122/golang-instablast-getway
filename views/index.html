@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>InstaBlast Pro</title>
+  <meta name="description" content="InstaBlast Pro - WhatsApp Broadcast & AI Management" />
+  <link rel="icon" href="/icon.ico" sizes="any" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+
+  <header class="topbar" id="topbar">
+    <div class="topbar-left">
+      <div class="topbar-logo" aria-hidden="true">
+        <img src="/icon.ico" alt="InstaBlast Pro" class="topbar-logo-image" />
+      </div>
+      <span class="topbar-text">InstaBlast Pro <span class="version-badge">Gateway</span></span>
+    </div>
+    <div class="topbar-center">
+      <div class="conn-badge" id="connBadge" onclick="checkConnection()">
+        <div class="conn-dot" id="connDot"></div>
+        <span id="connText">Menghubungkan...</span>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="user-pill" id="userSessionBox">
+        <span class="account-switcher-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 12c2.76 0 5-2.46 5-5.5S14.76 1 12 1 7 3.46 7 6.5 9.24 12 12 12Z" stroke="currentColor" stroke-width="1.7"/>
+            <path d="M3 22c1.52-4.04 4.65-6 9-6s7.48 1.96 9 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <div class="user-pill-content">
+          <strong id="currentUserLabel">Memuat user...</strong>
+        </div>
+      </div>
+      <div class="account-switcher">
+        <span class="account-switcher-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 12c2.76 0 5-2.46 5-5.5S14.76 1 12 1 7 3.46 7 6.5 9.24 12 12 12Z" stroke="currentColor" stroke-width="1.7"/>
+            <path d="M3 22c1.52-4.04 4.65-6 9-6s7.48 1.96 9 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <select id="accountSwitcher" onchange="handleAccountSwitch(this.value)">
+          <option value="">Memuat akun...</option>
+        </select>
+      </div>
+      <button class="topbar-btn log-btn" id="btnLogToggle" onclick="toggleLogPanel()">
+        Log <span class="log-count" id="logCount">0</span>
+      </button>
+      <button class="topbar-btn" onclick="logoutApp()">Logout</button>
+    </div>
+  </header>
+
+  <div class="app-layout">
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-nav">
+        <button class="nav-item active" data-tab="home" onclick="switchTab('home')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1v-9.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">Dashboard</span>
+        </button>
+        <button class="nav-item" data-tab="accounts" onclick="switchTab('accounts')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5Z" stroke="currentColor" stroke-width="1.7"/><path d="M4 21c1.3-3.6 4.1-5.4 8-5.4s6.7 1.8 8 5.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M18.5 8.5h4M20.5 6.5v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </span>
+          <span class="nav-label">Akun WA</span>
+        </button>
+        <button class="nav-item" data-tab="broadcast" onclick="switchTab('broadcast')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 19c4.6-2.1 9.3-4.2 14-6.3L5 6l2.4 5.1L19 12.7 7.4 14.3 5 19Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">Broadcast</span>
+        </button>
+        <button class="nav-item" data-tab="personalisasi" onclick="switchTab('personalisasi')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="m12 3 1.8 4.7L18.5 9l-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.3L12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m18.5 15 .9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9.9-2.4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">Personalisasi</span>
+        </button>
+        <button class="nav-item" data-tab="history" onclick="switchTab('history')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M3.5 12a8.5 8.5 0 1 0 2.2-5.7M3 4v4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">Riwayat</span>
+        </button>
+        <button class="nav-item" data-tab="tools" onclick="switchTab('tools')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="m14.7 6.3 3 3-8.4 8.4H6.3v-3l8.4-8.4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m13.3 7.7 3 3" stroke="currentColor" stroke-width="1.7"/><path d="M20 4 18 2l-2.3 2.3 3 3L21 5l-1-1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">Tools</span>
+        </button>
+        <button class="nav-item" data-tab="ai" onclick="switchTab('ai')">
+          <span class="nav-icon nav-icon-text">AI</span>
+          <span class="nav-label">InstaBlast AI</span>
+        </button>
+        <button class="nav-item" data-tab="api-docs" onclick="switchTab('api-docs')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M7 4.5h8l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 19V6A1.5 1.5 0 0 1 7.5 4.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M15 4.5V9h4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 12h6M9 15h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </span>
+          <span class="nav-label">API Docs</span>
+        </button>
+        <button class="nav-item" data-tab="settings" onclick="switchTab('settings')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 1 0 12 8.5Z" stroke="currentColor" stroke-width="1.7"/><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 1 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 1 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 1 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6H20a2 2 0 1 1 0 4h-.2a1 1 0 0 0-.9.6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">Setting</span>
+        </button>
+        <button class="nav-item" id="adminNavItem" data-tab="admin" onclick="switchTab('admin')" style="display:none;">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 4v5c0 4.5-2.9 7.8-7 9-4.1-1.2-7-4.5-7-9V7l7-4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9.5 12.5 11 14l3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">Admin</span>
+        </button>
+      </div>
+      <div class="sidebar-footer">
+        <div class="sidebar-version">Versi 1.0.0</div>
+        <div class="sidebar-brand">© 2026 AzkazamDigital</div>
+      </div>
+    </nav>
+
+    <main class="main-content">
+      <div class="tab-pane active" id="tab-home">
+        <div class="page-header">
+          <h1 class="page-title">Dashboard</h1>
+          <p class="page-subtitle">Kontrol dan monitor semua aktivitas WA Gateway</p>
+        </div>
+
+        <div class="wa-hero-card">
+          <div class="wa-hero-gradient"></div>
+          <div class="wa-hero-content">
+            <div id="qrSection">
+              <button class="btn-wa-open" id="btnScanQR" onclick="requestQR()">
+                <span class="wa-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M12 4c4.97 0 9 3.58 9 8s-4.03 8-9 8c-1.08 0-2.11-.17-3.08-.5L4 21l1.74-4.1A7.12 7.12 0 0 1 3 12c0-4.42 4.03-8 9-8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+                </span>
+                <div>
+                  <div class="wa-btn-title">Hubungkan WhatsApp</div>
+                  <div class="wa-btn-sub">Scan QR code untuk login</div>
+                </div>
+              </button>
+
+              <div class="hero-account-summary">
+                <div class="hero-account-chip">
+                  <div class="hero-account-label">Akun aktif</div>
+                  <div class="hero-account-name" id="heroAccountName">Belum ada akun</div>
+                  <div class="hero-account-status" id="heroAccountStatus">Tambahkan akun lalu scan QR.</div>
+                </div>
+                <div class="hero-account-total">
+                  <div class="hero-account-total-value" id="accountCount">0</div>
+                  <div class="hero-account-total-label">akun WA</div>
+                </div>
+              </div>
+
+              <div id="qrContainer" style="display:none; text-align:center; padding:20px;">
+                <img id="qrImage" src="" alt="QR Code" style="max-width:300px; border-radius:12px; border:3px solid rgba(34,197,94,0.3);" />
+                <p style="margin-top:10px; color:var(--muted); font-size:13px;">Scan QR code ini dengan WhatsApp di HP Anda</p>
+                <button class="btn btn-secondary btn-sm" onclick="requestQR()" style="margin-top:8px;">Refresh QR</button>
+              </div>
+              <div id="connectedInfo" style="display:none;">
+                <div style="display:flex; align-items:center; gap:12px; padding:16px; background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.2); border-radius:10px;">
+                  <div style="font-size:28px;">OK</div>
+                  <div>
+                    <div style="font-weight:700; color:#22c55e;">WhatsApp Terhubung</div>
+                    <div style="font-size:13px; color:var(--muted);" id="connJID">-</div>
+                    <div style="font-size:12px; color:var(--text-secondary);" id="connAccountMeta">-</div>
+                  </div>
+                  <div style="margin-left:auto; display:flex; gap:8px;">
+                    <button class="btn btn-secondary btn-sm" onclick="reconnectWA()">Reconnect</button>
+                    <button class="btn btn-danger btn-sm" onclick="logoutWA()">Logout</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card green"><div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></div><div class="stat-info"><div class="stat-label">WA Status</div><div class="stat-value" id="statWAStatus">-</div></div></div>
+          <div class="stat-card blue"><div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></div><div class="stat-info"><div class="stat-label">Total Broadcast</div><div class="stat-value" id="statTotalBC">0</div></div></div>
+          <div class="stat-card purple"><div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></div><div class="stat-info"><div class="stat-label">Terkirim</div><div class="stat-value" id="statSent">0</div></div></div>
+          <div class="stat-card orange"><div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><div class="stat-info"><div class="stat-label">Gagal</div><div class="stat-value" id="statFailed">0</div></div></div>
+        </div>
+
+        <div class="card dashboard-user-card">
+          <div class="card-title"><span>User</span> Informasi User Login</div>
+          <div class="dashboard-user-grid">
+            <div class="dashboard-user-item">
+              <div class="dashboard-user-label">Email</div>
+              <div class="dashboard-user-value" id="dashboardUserEmail">-</div>
+            </div>
+            <div class="dashboard-user-item">
+              <div class="dashboard-user-label">Role</div>
+              <div class="dashboard-user-value" id="dashboardUserRole">-</div>
+            </div>
+            <div class="dashboard-user-item">
+              <div class="dashboard-user-label">Masa aktif</div>
+              <div class="dashboard-user-value" id="dashboardUserExpires">-</div>
+            </div>
+            <div class="dashboard-user-item">
+              <div class="dashboard-user-label">Maks. login WA</div>
+              <div class="dashboard-user-value" id="dashboardUserMaxDevices">-</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card glow-card" id="dashProgressCard" style="display:none;">
+          <div class="card-title"><span>Data</span> Broadcast Progress</div>
+          <div class="progress-wrap">
+            <div class="progress-bar-container"><div class="progress-bar-fill" id="dashProgressBar"></div></div>
+            <div class="progress-label" id="dashProgressLabel">0/0</div>
+          </div>
+          <div id="dashProgressStatus" class="status-text"></div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-accounts">
+        <div class="page-header"><h1 class="page-title">Akun WhatsApp</h1><p class="page-subtitle">Kelola banyak sesi WhatsApp. Broadcast, tools, QR, dan status mengikuti akun aktif.</p></div>
+        <div class="two-column">
+          <div class="column"><div class="card"><div class="card-title"><span>WA</span> Tambah Akun</div><div class="form-group"><label>Nama akun</label><input type="text" id="newAccountName" placeholder="Contoh: CS Utama" /></div><div class="btn-row"><button class="btn btn-primary" onclick="createAccount()">Tambah akun</button><button class="btn btn-secondary" onclick="openQRForAccount()">Scan QR akun aktif</button></div><div class="hint">Jika nama dikosongkan, nama akun akan dibuat otomatis.</div></div></div>
+          <div class="column"><div class="card"><div class="card-title"><span>Info</span> Ringkasan Akun Aktif</div><div class="account-summary-panel"><div class="account-summary-label">Nama</div><div class="account-summary-value" id="activeAccountName">-</div><div class="account-summary-label">Status</div><div class="account-summary-value" id="activeAccountStatus">-</div><div class="account-summary-label">Nomor</div><div class="account-summary-value" id="activeAccountPhone">-</div></div></div></div>
+        </div>
+        <div class="card"><div class="card-title"><span>List</span> Daftar Akun WA</div><div id="waAccountCards" class="account-cards"><div class="empty-state-inline">Memuat akun...</div></div></div>
+      </div>
+
+      <div class="tab-pane" id="tab-broadcast">
+        <div class="page-header"><h1 class="page-title">Broadcast</h1><p class="page-subtitle">Kirim sekarang atau jadwalkan broadcast 24 jam dari akun WhatsApp yang dipilih</p></div>
+        <div class="two-column">
+          <div class="column"><div class="card"><div class="card-title"><span>Akun</span> Akun & Nomor Tujuan</div><div class="form-group"><label>Akun WhatsApp untuk broadcast</label><select id="broadcastAccountSelect"><option value="">Memuat akun...</option></select></div><textarea id="numbers" placeholder="628123456789&#10;628987654321&#10;(pisah baris/koma)" rows="8"></textarea><div class="btn-row"><button class="btn btn-secondary btn-sm" onclick="importCSV()">Import CSV</button><button class="btn btn-secondary btn-sm" onclick="clearField('numbers')">Bersihkan</button></div><div class="section-group"><label class="section-label">Grup Kontak</label><select id="groupSelect"><option value="">Pilih grup...</option></select><input type="text" id="groupName" placeholder="Nama grup baru" /><div class="btn-row"><button class="btn btn-primary btn-sm" onclick="saveGroup()">Simpan</button><button class="btn btn-secondary btn-sm" onclick="loadGroup()">Muat</button><button class="btn btn-danger btn-sm" onclick="deleteGroup()">Hapus</button></div></div></div></div>
+          <div class="column"><div class="card"><div class="card-title"><span>Pesan</span> Pesan</div><textarea id="message" placeholder="Halo {kak|gan}, ini pesan promo...&#10;Gunakan spintax: {Halo|Hi} {kak|gan}" rows="8"></textarea><div class="section-group"><label class="section-label">Template Pesan</label><select id="templateSelect"><option value="">Pilih template...</option></select><input type="text" id="templateName" placeholder="Nama template" /><div class="btn-row"><button class="btn btn-primary btn-sm" onclick="saveTemplate()">Simpan</button><button class="btn btn-danger btn-sm" onclick="deleteTemplate()">Hapus</button></div></div><label class="toggle"><input type="checkbox" id="useSpintax" checked /> Gunakan Spintax</label><label class="toggle"><input type="checkbox" id="attachImage" /> Sertakan Gambar</label><div id="imageRow" style="display:none;"><input type="file" id="imageInput" accept="image/*" multiple style="display:none" onchange="handleImageUpload(event)" /><div class="img-upload-btn" onclick="document.getElementById('imageInput').click()"><span class="upload-icon">IMG</span><span>Pilih Gambar</span></div><div id="imagePreview" class="image-preview-text"></div></div></div></div>
+        </div>
+        <div class="card"><div class="card-title"><span>Jadwal</span> Jadwalkan Broadcast</div><div class="form-row"><div class="form-group"><label>Nama jadwal</label><input type="text" id="scheduleName" placeholder="Contoh: Promo Pagi" /></div><div class="form-group"><label>Waktu kirim</label><input type="datetime-local" id="scheduleRunAt" /></div></div><div class="hint">Jadwal berjalan di server selama aplikasi backend hidup di Coolify, meski browser tidak dibuka.</div><div class="btn-row"><button class="btn btn-secondary" onclick="scheduleBroadcast()">Simpan Jadwal</button></div><div id="scheduleStatus" class="status-text"></div></div>
+        <div class="blast-controls"><div class="progress-wrap" id="progressWrap"><div class="progress-bar-container"><div class="progress-bar-fill" id="progressBar"></div></div><div class="progress-label" id="progressLabel">0/0</div></div><div class="blast-actions"><button class="btn btn-primary btn-lg" id="btnStart" onclick="startBroadcast()"><span class="btn-text">Kirim Broadcast</span></button><button class="btn btn-warning" id="btnPause" onclick="pauseBroadcast()">Pause</button><button class="btn btn-danger" id="btnStop" onclick="stopBroadcast()">Stop</button></div></div>
+        <div class="card"><div class="card-title"><span>List</span> Jadwal Broadcast</div><div style="overflow-x:auto; margin-top:8px;"><table class="data-table"><thead><tr><th>Nama</th><th>Akun</th><th>Waktu</th><th>Status</th><th>Total</th><th>Hasil</th><th>Aksi</th></tr></thead><tbody id="scheduleTableBody"><tr><td colspan="7" class="empty-cell">Belum ada jadwal broadcast</td></tr></tbody></table></div></div>
+      </div>
+
+      <div class="tab-pane" id="tab-personalisasi">
+        <div class="page-header"><h1 class="page-title">Broadcast Personalisasi</h1><p class="page-subtitle">Kirim pesan berbeda ke setiap kontak berdasarkan data CSV</p></div>
+        <div class="two-column">
+          <div class="column"><div class="card card-blue"><div class="card-title"><span>CSV</span> Import Data CSV</div><div class="form-group"><label>Akun WhatsApp untuk personalisasi</label><select id="personalAccountSelect"><option value="">Memuat akun...</option></select></div><div class="hint">File CSV harus memiliki kolom: <code>nomor</code>, <code>nama</code>, dan kolom kustom lainnya.<br><strong>Contoh:</strong> nomor,nama,jenis_kendaraan,plat_nomor,alamat</div><div class="btn-row"><input type="file" id="csvFileInput" accept=".csv" style="display:none" onchange="handleCSVImport(event)" /><button class="btn btn-primary btn-sm" onclick="document.getElementById('csvFileInput').click()">Import CSV</button><button class="btn btn-secondary btn-sm" onclick="downloadSampleCSV()">Download Sample</button></div><div id="csvImportStatus" class="status-text"></div></div><div class="card"><div class="card-title"><span>Nomor</span> Nomor Tujuan (dari CSV)</div><textarea id="numbersPersonal" placeholder="Nomor akan otomatis terisi setelah import CSV" rows="8" readonly></textarea><div class="status-text">Nomor otomatis terisi dari kolom 'nomor' di file CSV</div></div></div>
+          <div class="column"><div class="card"><div class="card-title"><span>Pesan</span> Template Pesan</div><textarea id="messagePersonal" placeholder="Halo {nama}, kendaraan {jenis_kendaraan} plat {plat_nomor} Anda sudah siap di {alamat}." rows="8"></textarea><div class="section-group" style="border-color:rgba(59,130,246,0.2); background:rgba(59,130,246,0.04);"><label class="section-label" style="color:#3b82f6;">Placeholder Tersedia</label><div id="personalPlaceholders" style="font-size:12px; color:var(--text-secondary); line-height:1.6;"><code>{nama}</code> - Nama kontak<br>Kolom kustom lainnya akan muncul setelah CSV diimport.</div></div><div class="section-group"><label class="section-label">Template Personalisasi</label><select id="templatePersonalSelect"><option value="">Pilih template...</option></select><input type="text" id="templatePersonalName" placeholder="Nama template" /><div class="btn-row"><button class="btn btn-primary btn-sm" onclick="saveTemplatePersonal()">Simpan</button><button class="btn btn-danger btn-sm" onclick="deleteTemplatePersonal()">Hapus</button></div></div><label class="toggle"><input type="checkbox" id="useSpintaxPersonal" /> Gunakan Spintax</label><label class="toggle"><input type="checkbox" id="attachImagePersonal" /> Sertakan Gambar</label><div id="imageRowPersonal" style="display:none;"><input type="file" id="imageInputPersonal" accept="image/*" multiple style="display:none" onchange="handleImageUploadPersonal(event)" /><div class="img-upload-btn" onclick="document.getElementById('imageInputPersonal').click()"><span class="upload-icon">IMG</span><span>Pilih Gambar</span></div><div id="imagePreviewPersonal" class="image-preview-text"></div></div></div></div>
+        </div>
+        <div class="card"><div class="card-title"><span>Jadwal</span> Jadwalkan Personalisasi</div><div class="form-row"><div class="form-group"><label>Nama jadwal</label><input type="text" id="schedulePersonalName" placeholder="Contoh: Reminder Service" /></div><div class="form-group"><label>Waktu kirim</label><input type="datetime-local" id="schedulePersonalRunAt" /></div></div><div class="hint">Dalam satu user, semua job broadcast dan personalisasi akan antre bergantian. User lain tetap bisa berjalan sendiri.</div><div class="btn-row"><button class="btn btn-secondary" onclick="schedulePersonalBroadcast()">Simpan Jadwal</button></div><div id="schedulePersonalStatus" class="status-text"></div></div>
+        <div class="card"><div class="card-title"><span>List</span> Jadwal Personalisasi</div><div style="overflow-x:auto; margin-top:8px;"><table class="data-table"><thead><tr><th>Nama</th><th>Akun</th><th>Waktu</th><th>Status</th><th>Total</th><th>Hasil</th><th>Aksi</th></tr></thead><tbody id="schedulePersonalTableBody"><tr><td colspan="7" class="empty-cell">Belum ada jadwal personalisasi</td></tr></tbody></table></div></div>
+        <div class="blast-controls"><div class="progress-wrap" id="progressWrapPersonal"><div class="progress-bar-container"><div class="progress-bar-fill" id="progressBarPersonal"></div></div><div class="progress-label" id="progressLabelPersonal">0/0</div></div><div class="blast-actions"><button class="btn btn-primary btn-lg" id="btnStartPersonal" onclick="startBroadcastPersonal()"><span class="btn-text">Kirim Personalisasi</span></button><button class="btn btn-warning" onclick="pauseBroadcast()">Pause</button><button class="btn btn-danger" onclick="stopBroadcast()">Stop</button></div></div>
+      </div>
+
+      <div class="tab-pane" id="tab-tools">
+        <div class="page-header"><h1 class="page-title">Tools</h1><p class="page-subtitle">Diagnostik dan tools WhatsApp</p></div>
+        <div class="tools-grid">
+          <div class="column">
+            <div class="card"><div class="feature-badge">Validasi Nomor WhatsApp</div><div class="hint">Cek apakah nomor terdaftar di WhatsApp. Masukkan nomor satu per baris, maksimum 500.</div><textarea id="validateInput" placeholder="628123456789&#10;628198765432" rows="5" style="margin-top:8px;font-family:monospace;font-size:13px;"></textarea><div class="btn-row"><button class="btn btn-primary btn-sm" id="validateRun" onclick="runValidateNumbers()">Validasi</button><button class="btn btn-secondary btn-sm" onclick="copyValidNumbers()">Salin Valid</button><button class="btn btn-secondary btn-sm" onclick="clearValidation()">Hapus</button></div><div id="validateStatus" class="status-text"></div><textarea id="validateOutput" placeholder="Hasil validasi..." readonly style="display:none;margin-top:8px;font-family:monospace;font-size:13px;" rows="5"></textarea></div>
+            <div class="card"><div class="feature-badge">Scrape Riwayat Chat</div><div class="hint">Mengambil riwayat chat personal dari history sync dan kontak akun aktif, mengikuti pola aplikasi desktop.</div><div class="btn-row"><button class="btn btn-primary btn-sm" onclick="loadChatHistory()">Scrape Riwayat</button><button class="btn btn-secondary btn-sm" id="copyHistoryBtn" onclick="copyChatHistory()">Salin Semua</button><button class="btn btn-secondary btn-sm" onclick="clearChatHistory()">Bersihkan</button></div><div id="historyScrapeStatus" class="status-text"></div><textarea id="historyOutput" placeholder="Hasil scrape riwayat chat..." readonly style="display:none;margin-top:8px;font-family:monospace;font-size:13px;" rows="7"></textarea></div>
+          </div>
+          <div class="column"><div class="card"><div class="feature-badge">Grup WhatsApp</div><div class="hint">Lihat daftar grup pada akun aktif dan scrape nomor member group.</div><div class="btn-row"><button class="btn btn-primary btn-sm" onclick="loadWAGroups()">Muat Daftar Grup</button></div><select id="waGroupList" style="margin-top:8px;"><option value="">Klik tombol di atas...</option></select><div class="btn-row" style="margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="scrapeGroupMembers()">Ambil Anggota</button><button class="btn btn-secondary btn-sm" id="copyGroupBtn" onclick="copyGroupMembers()">Salin Semua</button></div><div id="groupScrapeStatus" class="status-text"></div><textarea id="groupMembersOutput" placeholder="Hasil scrape anggota grup..." readonly style="display:none;margin-top:8px;" rows="7"></textarea></div></div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-ai">
+        <div class="page-header"><h1 class="page-title">InstaBlast AI</h1><p class="page-subtitle">Balas pesan personal WhatsApp secara otomatis memakai engine AI dari project desktop.</p></div>
+        <div class="stats-grid">
+          <div class="stat-card blue"><div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><div class="stat-info"><div class="stat-label">AI Diterima</div><div class="stat-value" id="aiStatReceived">0</div></div></div>
+          <div class="stat-card green"><div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22L11 13L2 9L22 2Z"/></svg></div><div class="stat-info"><div class="stat-label">AI Terbalas</div><div class="stat-value" id="aiStatReplied">0</div></div></div>
+          <div class="stat-card orange"><div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div class="stat-info"><div class="stat-label">AI Gagal</div><div class="stat-value" id="aiStatFailed">0</div></div></div>
+        </div>
+        <div class="two-column">
+          <div class="column"><div class="card card-purple"><div class="card-title"><span>AI</span> Konfigurasi Auto-Reply</div><label class="toggle"><input type="checkbox" id="aiEnabled" /> Aktifkan balas otomatis AI</label><label class="toggle"><input type="checkbox" id="aiOcrEnabled" checked /> Aktifkan AI Vision untuk gambar masuk</label><div class="form-group"><label>Pilih akun WhatsApp untuk AI</label><div id="aiAccountPicker" class="account-picker"><div class="empty-state-inline">Memuat akun...</div></div></div><div class="form-group"><label>Delay Balas (ms)</label><input type="number" id="aiDelayMs" value="1200" min="0" /></div><div class="form-row"><div class="form-group"><label>Memory Riwayat</label><input type="number" id="aiMaxHistory" value="15" min="1" max="50" /></div><div class="form-group"><label>Batch Window (ms)</label><input type="number" id="aiBatchWindowMs" value="4500" min="500" max="30000" /></div></div><div class="hint">Pesan yang masuk berdekatan dalam satu chat akan digabung sebelum AI membalas.</div></div></div>
+          <div class="column"><div class="card"><div class="card-title"><span>Prompt</span> Prompt AI</div><div class="form-group"><label>Instruksi AI</label><textarea id="aiInstruction" rows="6" placeholder="Contoh: Jawab singkat, ramah, dan fokus closing.">Jawab dengan singkat, jelas, natural, dan sopan dalam bahasa Indonesia.</textarea></div><div class="form-group"><label>Info Produk</label><textarea id="aiProductInfo" rows="6" placeholder="Masukkan detail produk atau layanan agar AI menjawab lebih akurat."></textarea></div><div class="btn-row"><button class="btn btn-primary" onclick="saveAISettings()">Simpan AI</button><button class="btn btn-secondary" onclick="testAI()">Test AI</button></div><div id="aiStatus" class="status-text"></div><div id="aiLastError" class="status-text" style="color:#ef4444;"></div></div></div>
+        </div>
+      </div>
+      <div class="tab-pane" id="tab-api-docs">
+        <div class="page-header"><h1 class="page-title">API Docs</h1><p class="page-subtitle">Dokumentasi API sinkronisasi untuk integrasi aplikasi lain.</p></div>
+        <div class="card api-docs-card">
+          <div class="card-title"><span>Info</span> Ringkasan Integrasi</div>
+          <div class="api-docs-grid">
+            <div class="api-docs-item">
+              <div class="api-docs-label">Base URL</div>
+              <div class="api-inline-copy">
+                <code id="apiDocsBaseUrl">http://host:3000</code>
+                <button class="btn btn-secondary btn-sm" onclick="copyAPIDocValue('apiDocsBaseUrl', 'Base URL')">Salin</button>
+              </div>
+            </div>
+            <div class="api-docs-item">
+              <div class="api-docs-label">Auth</div>
+              <code>Basic Auth email:password</code>
+            </div>
+            <div class="api-docs-item">
+              <div class="api-docs-label">Pilih Device</div>
+              <code>X-Device-Id</code>, path <code>:device_id</code>, atau query <code>device_id</code>
+            </div>
+            <div class="api-docs-item">
+              <div class="api-docs-label">Format Response</div>
+              <code>{"code","message","results","status"}</code>
+            </div>
+          </div>
+          <div class="api-docs-grid" style="margin-top:12px;">
+            <div class="api-docs-item">
+              <div class="api-docs-label">Username API</div>
+              <div class="api-inline-copy">
+                <code id="apiDocsUsername">Email user yang login di aplikasi ini</code>
+                <button class="btn btn-secondary btn-sm" onclick="copyAPIDocValue('apiDocsUsername', 'Username API')">Salin</button>
+              </div>
+            </div>
+            <div class="api-docs-item">
+              <div class="api-docs-label">Password API</div>
+              <code>Password user yang sama dengan menu login</code>
+            </div>
+          </div>
+          <div class="hint">Untuk aplikasi lain, gunakan endpoint di bawah langsung dari server ini. Endpoint web UI lama tidak berubah.</div>
+        </div>
+
+        <div class="two-column api-docs-columns">
+          <div class="column">
+            <div class="card api-docs-card">
+              <div class="card-title"><span>App</span> Endpoint Aplikasi</div>
+              <div class="api-docs-list">
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/app/devices</code><span class="api-desc">Daftar device milik user login.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/app/status</code><span class="api-desc">Status koneksi device aktif.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/app/login</code><span class="api-desc">Ambil QR login.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/app/login-with-code</code><span class="api-desc">Login pairing code.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/app/logout</code><span class="api-desc">Logout device aktif.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/app/reconnect</code><span class="api-desc">Reconnect device aktif.</span></div>
+              </div>
+            </div>
+
+            <div class="card api-docs-card">
+              <div class="card-title"><span>Devices</span> Endpoint Device</div>
+              <div class="api-docs-list">
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/devices</code><span class="api-desc">List semua device user.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/devices</code><span class="api-desc">Tambah device baru dengan <code>device_id</code>.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/devices/:device_id</code><span class="api-desc">Detail device.</span></div>
+                <div class="api-endpoint"><span class="api-method delete">DELETE</span><code>/devices/:device_id</code><span class="api-desc">Hapus device.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/devices/:device_id/login</code><span class="api-desc">QR login per device.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/devices/:device_id/login-with-code</code><span class="api-desc">Pairing code per device.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/devices/:device_id/logout</code><span class="api-desc">Logout device tertentu.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/devices/:device_id/reconnect</code><span class="api-desc">Reconnect device tertentu.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/devices/:device_id/status</code><span class="api-desc">Status device tertentu.</span></div>
+              </div>
+            </div>
+
+            <div class="card api-docs-card">
+              <div class="card-title"><span>Send</span> Endpoint Kirim</div>
+              <div class="api-docs-list">
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/send/message</code><span class="api-desc">Kirim pesan teks.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/send/image</code><span class="api-desc">Kirim gambar dengan caption.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/send/poll</code><span class="api-desc">Kirim polling.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/send/presence</code><span class="api-desc">Set online / offline presence.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/send/chat-presence</code><span class="api-desc">Set typing / recording ke chat target.</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="column">
+            <div class="card api-docs-card">
+              <div class="card-title"><span>User</span> Endpoint User</div>
+              <div class="api-docs-list">
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/user/check?phone=628...</code><span class="api-desc">Cek nomor terdaftar di WhatsApp.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/user/info?phone=628...</code><span class="api-desc">Info kontak.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/user/avatar?phone=628...</code><span class="api-desc">Avatar kontak.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/user/my/groups</code><span class="api-desc">Grup milik akun aktif.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/user/my/contacts</code><span class="api-desc">Kontak akun aktif.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/user/my/privacy</code><span class="api-desc">Info privacy akun.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/user/business-profile?phone=628...</code><span class="api-desc">Business profile nomor target.</span></div>
+              </div>
+            </div>
+
+            <div class="card api-docs-card">
+              <div class="card-title"><span>Group</span> Endpoint Grup</div>
+              <div class="api-docs-list">
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/group/create</code><span class="api-desc">Buat grup baru.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/group/join-with-link</code><span class="api-desc">Join grup dari invite link.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/group/info-from-link?link=...</code><span class="api-desc">Info grup dari link.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/group/info?id=...</code><span class="api-desc">Info grup dari ID.</span></div>
+                <div class="api-endpoint"><span class="api-method post">POST</span><code>/group/leave</code><span class="api-desc">Keluar dari grup.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/group/participants?id=...</code><span class="api-desc">List participant grup.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/group/participants/export?id=...</code><span class="api-desc">Export participant grup.</span></div>
+                <div class="api-endpoint"><span class="api-method get">GET</span><code>/group/invite-link?id=...</code><span class="api-desc">Ambil link invite grup.</span></div>
+              </div>
+            </div>
+
+            <div class="card api-docs-card">
+              <div class="card-title"><span>Contoh</span> Request Cepat</div>
+              <div class="api-example-block">
+                <div class="api-example-title">Basic Auth</div>
+<pre><code id="apiDocsAuthExample">Authorization: Basic base64(email:password)</code></pre>
+                <div class="btn-row"><button class="btn btn-secondary btn-sm" onclick="copyAPIDocValue('apiDocsAuthExample', 'Contoh Basic Auth')">Salin</button></div>
+              </div>
+              <div class="api-example-block">
+                <div class="api-example-title">List Device</div>
+<pre><code id="apiDocsDevicesExample">GET /devices
+Authorization: Basic base64(email:password)</code></pre>
+                <div class="btn-row"><button class="btn btn-secondary btn-sm" onclick="copyAPIDocValue('apiDocsDevicesExample', 'Contoh list device')">Salin</button></div>
+              </div>
+              <div class="api-example-block">
+                <div class="api-example-title">Tambah Device</div>
+<pre><code id="apiDocsAddDeviceExample">POST /devices
+Content-Type: application/json
+
+{
+  "device_id": "cs-utama",
+  "name": "CS Utama"
+}</code></pre>
+                <div class="btn-row"><button class="btn btn-secondary btn-sm" onclick="copyAPIDocValue('apiDocsAddDeviceExample', 'Contoh tambah device')">Salin</button></div>
+              </div>
+              <div class="api-example-block">
+                <div class="api-example-title">Kirim Pesan</div>
+<pre><code id="apiDocsSendMessageExample">POST /send/message
+X-Device-Id: cs-utama
+Content-Type: application/json
+
+{
+  "phone": "628123456789",
+  "message": "Halo, ini pesan sinkron."
+}</code></pre>
+                <div class="btn-row"><button class="btn btn-secondary btn-sm" onclick="copyAPIDocValue('apiDocsSendMessageExample', 'Contoh kirim pesan')">Salin</button></div>
+              </div>
+              <div class="api-example-block">
+                <div class="api-example-title">Response Sukses</div>
+<pre><code id="apiDocsSuccessExample">{
+  "code": "SUCCESS",
+  "message": "List devices",
+  "results": [],
+  "status": 200
+}</code></pre>
+                <div class="btn-row"><button class="btn btn-secondary btn-sm" onclick="copyAPIDocValue('apiDocsSuccessExample', 'Contoh response')">Salin</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="tab-pane" id="tab-history">
+        <div class="page-header"><h1 class="page-title">Riwayat Broadcast</h1><p class="page-subtitle">Catatan lengkap setiap sesi pengiriman broadcast</p></div>
+        <div class="card"><div class="card-title"><span>Ringkasan</span> Ringkasan</div><div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:8px;"><div style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#22c55e;" id="histTotalSent">0</div><div style="font-size:11px; color:var(--muted);">Total Terkirim</div></div><div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#ef4444;" id="histTotalFailed">0</div><div style="font-size:11px; color:var(--muted);">Total Gagal</div></div><div style="background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#3b82f6;" id="histTotalSessions">0</div><div style="font-size:11px; color:var(--muted);">Total Sesi</div></div><div style="background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#a855f7;" id="histSuccessRate">0%</div><div style="font-size:11px; color:var(--muted);">Success Rate</div></div></div></div>
+        <div class="card"><div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;"><button class="btn btn-danger btn-sm" onclick="clearHistory()" style="margin-left:auto;">Hapus Riwayat</button></div></div>
+        <div class="card"><div class="card-title"><span>List</span> Daftar Riwayat</div><div style="overflow-x:auto; margin-top:8px;"><table class="data-table" id="historyTable"><thead><tr><th style="width:30px;">#</th><th>Tanggal</th><th style="text-align:center;">Total</th><th style="text-align:center;color:#22c55e;">OK</th><th style="text-align:center;color:#ef4444;">Fail</th><th>Pesan</th><th>Durasi</th><th>Tipe</th></tr></thead><tbody id="historyTableBody"><tr><td colspan="8" class="empty-cell">Belum ada riwayat broadcast</td></tr></tbody></table></div></div>
+      </div>
+
+      <div class="tab-pane" id="tab-settings">
+        <div class="page-header"><h1 class="page-title">Pengaturan</h1><p class="page-subtitle">Konfigurasi broadcast dan koneksi</p></div>
+        <div class="two-column">
+          <div class="column"><div class="card"><div class="card-title"><span>Delay</span> Delay Kirim</div><div class="form-group"><label>Delay (detik)</label><input type="number" id="delay" value="3" min="1" /></div><label class="toggle"><input type="checkbox" id="randomDelay" /> Random Delay</label><div id="randomDelayRow" style="display:none;"><div class="form-row"><div class="form-group"><label>Min (dtk)</label><input type="number" id="delayMin" value="2" min="1" /></div><div class="form-group"><label>Max (dtk)</label><input type="number" id="delayMax" value="5" min="1" /></div></div></div></div></div>
+          <div class="column"><div class="card"><div class="card-title"><span>Pause</span> Burst Pause</div><div class="hint">Jeda panjang setelah mengirim sejumlah pesan tertentu agar lebih natural.</div><div class="form-row"><div class="form-group"><label>Pause tiap</label><input type="number" id="burstEvery" value="0" min="0" placeholder="50" /></div><div class="form-group"><label>Durasi (dtk)</label><input type="number" id="burstPauseSec" value="0" min="0" placeholder="60" /></div></div></div><div class="card"><div class="card-title"><span>Simpan</span> Simpan Pengaturan</div><button class="btn btn-primary" onclick="saveSettings()">Simpan Semua</button><div id="settingsStatus" class="status-text" style="margin-top:8px;"></div></div></div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-admin">
+        <div class="page-header"><h1 class="page-title">Admin User</h1><p class="page-subtitle">Tambah user, atur device login, akses AI, dan masa aktif.</p></div>
+        <div class="two-column">
+          <div class="column">
+            <div class="card">
+              <div class="card-title"><span>User</span> Tambah User</div>
+              <div class="form-group"><label>Email</label><input type="email" id="adminUserEmail" placeholder="user@email.com" /></div>
+              <div class="form-group"><label>Password</label><input type="password" id="adminUserPassword" placeholder="Password user" /></div>
+              <div class="form-row">
+                <div class="form-group"><label>Maksimal device login</label><input type="number" id="adminUserMaxDevices" value="1" min="1" /></div>
+                <div class="form-group"><label>Masa aktif (hari)</label><input type="number" id="adminUserActiveDays" value="30" min="1" /></div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="adminUserCanAI" checked /> User boleh memakai InstaBlast AI</label>
+              <div class="btn-row"><button class="btn btn-primary" onclick="createManagedUser()">Tambah User</button></div>
+              <div id="adminUserStatus" class="status-text"></div>
+            </div>
+          </div>
+          <div class="column">
+            <div class="card">
+              <div class="card-title"><span>List</span> Daftar User</div>
+              <div style="overflow-x:auto; margin-top:8px;">
+                <table class="data-table">
+                  <thead><tr><th>Email</th><th>Role</th><th>AI</th><th>Device</th><th>Masa Aktif</th><th>Aksi</th></tr></thead>
+                  <tbody id="adminUsersTableBody"><tr><td colspan="6" class="empty-cell">Memuat user...</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-title"><span>AI</span> API Key Global NVIDIA</div>
+              <div class="form-group"><label>API Key</label><input type="password" id="adminGlobalApiKey" placeholder="nvapi-..." /></div>
+              <div class="hint">API key ini dipakai oleh semua user untuk InstaBlast AI.</div>
+              <div class="btn-row"><button class="btn btn-primary" onclick="saveAdminAIConfig()">Simpan API Key</button></div>
+              <div id="adminAIStatus" class="status-text"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="log-overlay" id="logOverlay" onclick="if(event.target===this)toggleLogPanel()">
+    <div class="log-panel">
+      <div class="log-panel-header">
+        <span>Log Aktivitas</span>
+        <div class="log-header-actions">
+          <button class="btn btn-secondary btn-sm" onclick="clearLog()">Bersihkan</button>
+          <button class="btn btn-secondary btn-sm" onclick="toggleLogPanel()">Tutup</button>
+        </div>
+      </div>
+      <div class="log-panel-body" id="logArea"></div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
