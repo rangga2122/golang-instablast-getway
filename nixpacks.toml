@@ -2,6 +2,9 @@
 CGO_ENABLED = "0"
 GOFLAGS = "-buildvcs=false"
 
+[phases.setup]
+aptPkgs = ["curl", "wget"]
+
 [phases.install]
 cmds = ["go mod download"]
 
