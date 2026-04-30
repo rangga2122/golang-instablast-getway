@@ -320,10 +320,11 @@ html, body {
   background: rgba(17, 27, 33, 0.46);
   backdrop-filter: blur(6px);
   display: none;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 24px;
   z-index: 200;
+  overflow-y: auto;
 }
 
 .modal-overlay.open {
@@ -332,11 +333,15 @@ html, body {
 
 .modal-card {
   width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
   background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,251,250,0.98));
   border: 1px solid rgba(0,168,132,0.16);
   border-radius: 18px;
   box-shadow: 0 24px 80px rgba(17,27,33,0.18);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  margin: auto 0;
 }
 
 .modal-card-header,
@@ -352,11 +357,17 @@ html, body {
 .modal-card-footer {
   border-bottom: none;
   border-top: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(247,251,250,0.96), rgba(255,255,255,0.98));
+  flex-shrink: 0;
 }
 
 .modal-card-body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 28px 22px;
   text-align: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .modal-card-title {
@@ -504,6 +515,32 @@ html, body {
 
 .waba-ack-item span {
   line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .modal-overlay {
+    padding: 12px;
+  }
+
+  .modal-card {
+    max-height: calc(100vh - 24px);
+    border-radius: 16px;
+  }
+
+  .modal-card-header,
+  .modal-card-footer,
+  .modal-card-body {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .modal-card-footer {
+    flex-wrap: wrap;
+  }
+
+  .modal-card-footer .btn {
+    width: 100%;
+  }
 }
 
 /* ===== WA HERO ===== */

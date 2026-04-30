@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/hex"
@@ -142,7 +144,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 
 	app.Use(func(c *fiber.Ctx) error {
 		path := c.Path()
-		if strings.HasPrefix(path, "/assets") || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/privacy-policy" || path == "/terms-of-service" || path == "/data-deletion" || path == "/api/auth/login" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" {
+		if strings.HasPrefix(path, "/assets") || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/privacy-policy" || path == "/terms-of-service" || path == "/data-deletion" || path == "/data-deletion-status" || path == "/api/auth/login" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" || path == "/api/meta/data-deletion" {
 			return c.Next()
 		}
 		if AuthService == nil {
@@ -280,6 +282,24 @@ func runServer(cmd_ *cobra.Command, args []string) {
 					Title: "Waktu Pemrosesan",
 					Body: []string{
 						"Setelah identitas diverifikasi, kami akan memproses permintaan penghapusan data dalam waktu yang wajar sesuai kebutuhan operasional dan kewajiban hukum yang berlaku.",
+					},
+				},
+			},
+		}))
+	})
+	app.Get("/data-deletion-status", func(c *fiber.Ctx) error {
+		code := strings.TrimSpace(c.Query("code"))
+		c.Set("Content-Type", "text/html; charset=utf-8")
+		return c.SendString(legalPageHTML(legalPageContent{
+			Title:       "Data Deletion Status",
+			Heading:     "Status Permintaan Penghapusan Data",
+			Description: "Halaman ini dipakai sebagai status callback penghapusan data untuk integrasi Meta.",
+			Sections: []legalSection{
+				{
+					Title: "Status",
+					Body: []string{
+						firstNonEmpty("Permintaan penghapusan data telah diterima dengan kode konfirmasi "+code+".", "Permintaan penghapusan data telah diterima."),
+						"Jika diperlukan tindak lanjut tambahan, tim operasional akan melakukan verifikasi sesuai data yang tersedia.",
 					},
 				},
 			},
@@ -617,6 +637,42 @@ func runServer(cmd_ *cobra.Command, args []string) {
 	api.Post("/meta/webhook", func(c *fiber.Ctx) error {
 		logrus.Infof("Meta webhook received: %s", string(c.Body()))
 		return c.JSON(fiber.Map{"status": "ok"})
+	})
+	api.Post("/meta/data-deletion", func(c *fiber.Ctx) error {
+		signedRequest := strings.TrimSpace(c.FormValue("signed_request"))
+		if signedRequest == "" {
+			var body struct {
+				SignedRequest string `json:"signed_request"`
+			}
+			_ = c.BodyParser(&body)
+			signedRequest = strings.TrimSpace(body.SignedRequest)
+		}
+		if signedRequest == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "signed_request wajib diisi"})
+		}
+
+		cfg := metaConfigFromStore(c)
+		payload, err := parseMetaSignedRequest(signedRequest, cfg.AppSecret)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		code, err := issueMetaDeletionConfirmationCode()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		statusURL := strings.TrimRight(c.BaseURL(), "/") + "/data-deletion-status?code=" + url.QueryEscape(code)
+
+		logrus.WithFields(logrus.Fields{
+			"algorithm": payload.Algorithm,
+			"user_id":   payload.UserID,
+			"issued_at": payload.IssuedAt,
+		}).Info("Meta data deletion callback received")
+
+		return c.JSON(fiber.Map{
+			"url":               statusURL,
+			"confirmation_code": code,
+		})
 	})
 
 	api.Get("/accounts", func(c *fiber.Ctx) error {
@@ -1931,6 +1987,60 @@ func htmlEscape(s string) string {
 		"'", "&#39;",
 	)
 	return replacer.Replace(s)
+}
+
+type metaSignedRequestPayload struct {
+	Algorithm string `json:"algorithm"`
+	IssuedAt  int64  `json:"issued_at"`
+	UserID    string `json:"user_id"`
+}
+
+func parseMetaSignedRequest(signedRequest, appSecret string) (metaSignedRequestPayload, error) {
+	var payload metaSignedRequestPayload
+
+	parts := strings.SplitN(strings.TrimSpace(signedRequest), ".", 2)
+	if len(parts) != 2 {
+		return payload, fmt.Errorf("format signed_request tidak valid")
+	}
+
+	signature, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return payload, fmt.Errorf("signature signed_request tidak valid")
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return payload, fmt.Errorf("payload signed_request tidak valid")
+	}
+
+	if secret := strings.TrimSpace(appSecret); secret != "" {
+		mac := hmac.New(sha256.New, []byte(secret))
+		if _, err := mac.Write([]byte(parts[1])); err != nil {
+			return payload, fmt.Errorf("gagal memverifikasi signed_request")
+		}
+		expected := mac.Sum(nil)
+		if !hmac.Equal(signature, expected) {
+			return payload, fmt.Errorf("signature signed_request tidak cocok")
+		}
+	}
+
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		return payload, fmt.Errorf("payload signed_request tidak dapat dibaca")
+	}
+
+	if payload.Algorithm != "" && !strings.EqualFold(payload.Algorithm, "HMAC-SHA256") {
+		return payload, fmt.Errorf("algoritma signed_request tidak didukung")
+	}
+
+	return payload, nil
+}
+
+func issueMetaDeletionConfirmationCode() (string, error) {
+	var token [12]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return "", fmt.Errorf("gagal membuat kode konfirmasi")
+	}
+	return hex.EncodeToString(token[:]), nil
 }
 
 var _ = whatsmeow.MediaImage
