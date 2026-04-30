@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/azkazamdigital/wa-gateway/config"
@@ -34,6 +37,24 @@ import (
 )
 
 var wsClients = make(map[*websocket.Conn]string)
+
+const (
+	metaAppIDPrefKey       = "meta_app_id"
+	metaAppSecretPrefKey   = "meta_app_secret"
+	metaConfigIDPrefKey    = "meta_config_id"
+	metaRedirectURIPrefKey = "meta_redirect_uri"
+	metaVerifyTokenPrefKey = "meta_verify_token"
+)
+
+type metaSignupState struct {
+	UserID    string
+	ExpiresAt time.Time
+}
+
+var (
+	metaSignupStatesMu sync.Mutex
+	metaSignupStates   = make(map[string]metaSignupState)
+)
 
 type imagePayload struct {
 	Data string `json:"data"`
@@ -121,7 +142,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 
 	app.Use(func(c *fiber.Ctx) error {
 		path := c.Path()
-		if strings.HasPrefix(path, "/assets") || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/api/auth/login" {
+		if strings.HasPrefix(path, "/assets") || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/api/auth/login" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" {
 			return c.Next()
 		}
 		if AuthService == nil {
@@ -329,6 +350,182 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(fiber.Map{"status": "saved", "global_api_key": Store.GetPref("global_nvidia_api_key")})
+	})
+	api.Get("/admin/meta-config", func(c *fiber.Ctx) error {
+		user, err := currentUser(c)
+		if err != nil || !user.IsAdmin {
+			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
+		}
+		return c.JSON(fiber.Map{
+			"app_id":       Store.GetPref(metaAppIDPrefKey),
+			"app_secret":   Store.GetPref(metaAppSecretPrefKey),
+			"config_id":    Store.GetPref(metaConfigIDPrefKey),
+			"redirect_uri": Store.GetPref(metaRedirectURIPrefKey),
+			"verify_token": Store.GetPref(metaVerifyTokenPrefKey),
+		})
+	})
+	api.Post("/admin/meta-config", func(c *fiber.Ctx) error {
+		user, err := currentUser(c)
+		if err != nil || !user.IsAdmin {
+			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
+		}
+		var body struct {
+			AppID       string `json:"app_id"`
+			AppSecret   string `json:"app_secret"`
+			ConfigID    string `json:"config_id"`
+			RedirectURI string `json:"redirect_uri"`
+			VerifyToken string `json:"verify_token"`
+		}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+		if err := Store.SetPref(metaAppIDPrefKey, strings.TrimSpace(body.AppID)); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err := Store.SetPref(metaAppSecretPrefKey, strings.TrimSpace(body.AppSecret)); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err := Store.SetPref(metaConfigIDPrefKey, strings.TrimSpace(body.ConfigID)); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err := Store.SetPref(metaRedirectURIPrefKey, strings.TrimSpace(body.RedirectURI)); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err := Store.SetPref(metaVerifyTokenPrefKey, strings.TrimSpace(body.VerifyToken)); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"status": "saved"})
+	})
+
+	api.Get("/meta/accounts", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		accounts, err := tenantCtx.Store.ListMetaWABAAccounts()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"accounts": accounts})
+	})
+	api.Get("/meta/signup/session", func(c *fiber.Ctx) error {
+		user, _, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		cfg := metaConfigFromStore(c)
+		if strings.TrimSpace(cfg.AppID) == "" || strings.TrimSpace(cfg.ConfigID) == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Meta Embedded Signup belum dikonfigurasi admin"})
+		}
+		state, err := issueMetaSignupState(user.ID)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		redirectURI := cfg.RedirectURI
+		if strings.TrimSpace(redirectURI) == "" {
+			redirectURI = strings.TrimRight(c.BaseURL(), "/") + "/api/meta/signup/callback"
+		}
+		launchURL := fmt.Sprintf(
+			"https://www.facebook.com/v22.0/dialog/oauth?client_id=%s&redirect_uri=%s&state=%s&response_type=code&config_id=%s&override_default_response_type=true",
+			url.QueryEscape(cfg.AppID),
+			url.QueryEscape(redirectURI),
+			url.QueryEscape(state),
+			url.QueryEscape(cfg.ConfigID),
+		)
+		return c.JSON(fiber.Map{
+			"state":         state,
+			"launch_url":    launchURL,
+			"app_id":        cfg.AppID,
+			"config_id":     cfg.ConfigID,
+			"redirect_uri":  redirectURI,
+			"graph_version": cfg.GraphVersion,
+			"user_id":       user.ID,
+		})
+	})
+	api.Post("/meta/signup/complete", func(c *fiber.Ctx) error {
+		user, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		var body struct {
+			State         string `json:"state"`
+			Code          string `json:"code"`
+			Name          string `json:"name"`
+			BusinessID    string `json:"business_id"`
+			WABAID        string `json:"waba_id"`
+			PhoneNumberID string `json:"phone_number_id"`
+			DisplayPhone  string `json:"display_phone_number"`
+		}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+		cfg := metaConfigFromStore(c)
+		if strings.TrimSpace(cfg.AppID) == "" || strings.TrimSpace(cfg.AppSecret) == "" || strings.TrimSpace(cfg.ConfigID) == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Konfigurasi Meta belum lengkap. Isi App ID, App Secret, dan Config ID terlebih dahulu."})
+		}
+		if strings.TrimSpace(body.Code) == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Kode otorisasi Meta tidak ditemukan. Ulangi proses signup dari awal."})
+		}
+		if err := consumeMetaSignupState(user.ID, body.State); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		item, warnings, err := finalizeMetaSignup(ctx, tenantCtx.Store, cfg, metaSignupCompletePayload{
+			Name:          strings.TrimSpace(body.Name),
+			Code:          strings.TrimSpace(body.Code),
+			BusinessID:    strings.TrimSpace(body.BusinessID),
+			WABAID:        strings.TrimSpace(body.WABAID),
+			PhoneNumberID: strings.TrimSpace(body.PhoneNumberID),
+			DisplayPhone:  strings.TrimSpace(body.DisplayPhone),
+		})
+		if err != nil {
+			statusCode := 500
+			lowerErr := strings.ToLower(err.Error())
+			if strings.Contains(lowerErr, "meta graph error") || strings.Contains(lowerErr, "kode otorisasi") || strings.Contains(lowerErr, "meta tidak mengirim") || strings.Contains(lowerErr, "app id") {
+				statusCode = 400
+			}
+			return c.Status(statusCode).JSON(fiber.Map{"error": err.Error()})
+		}
+		logrus.WithFields(logrus.Fields{
+			"user_id":         user.ID,
+			"business_id":     item.BusinessID,
+			"waba_id":         item.WABAID,
+			"phone_number_id": item.PhoneNumberID,
+			"status":          item.Status,
+			"onboarding":      item.OnboardingStatus,
+		}).Info("Meta WABA signup completed")
+		return c.JSON(fiber.Map{"status": "saved", "account": item, "warnings": warnings})
+	})
+	api.Get("/meta/signup/callback", func(c *fiber.Ctx) error {
+		code := strings.TrimSpace(c.Query("code"))
+		state := strings.TrimSpace(c.Query("state"))
+		errCode := strings.TrimSpace(c.Query("error"))
+		errDesc := strings.TrimSpace(c.Query("error_description"))
+		payload, _ := json.Marshal(fiber.Map{
+			"type":              "meta_embedded_signup_callback",
+			"code":              code,
+			"state":             state,
+			"error":             errCode,
+			"error_description": errDesc,
+		})
+		html := fmt.Sprintf(`<!doctype html><html><head><meta charset="utf-8"><title>Meta Signup Callback</title></head><body style="font-family:Arial,sans-serif;padding:24px;"><h3>Meta signup selesai</h3><p>Jendela ini bisa ditutup.</p><script>const payload=%s;if(window.opener){window.opener.postMessage(payload, window.location.origin);}setTimeout(()=>window.close(), 500);</script></body></html>`, string(payload))
+		c.Set("Content-Type", "text/html")
+		return c.SendString(html)
+	})
+	api.Get("/meta/webhook", func(c *fiber.Ctx) error {
+		mode := strings.TrimSpace(c.Query("hub.mode"))
+		verifyToken := strings.TrimSpace(c.Query("hub.verify_token"))
+		challenge := strings.TrimSpace(c.Query("hub.challenge"))
+		cfg := metaConfigFromStore(c)
+		if mode == "subscribe" && cfg.VerifyToken != "" && verifyToken == cfg.VerifyToken {
+			return c.SendString(challenge)
+		}
+		return c.Status(403).SendString("Forbidden")
+	})
+	api.Post("/meta/webhook", func(c *fiber.Ctx) error {
+		logrus.Infof("Meta webhook received: %s", string(c.Body()))
+		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
 	api.Get("/accounts", func(c *fiber.Ctx) error {
@@ -1205,16 +1402,19 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			settings.Enabled = false
 		}
 		return c.JSON(fiber.Map{
-			"enabled":         settings.Enabled,
-			"api_key":         settings.APIKey,
-			"instruction":     settings.Instruction,
-			"product_info":    settings.ProductInfo,
-			"delay_ms":        settings.DelayMs,
-			"max_history":     settings.MaxHistory,
-			"batch_window_ms": settings.BatchWindowMs,
-			"vision_enabled":  settings.VisionEnabled,
-			"account_ids":     settings.AccountIDs,
-			"locked":          !user.CanUseAI,
+			"enabled":            settings.Enabled,
+			"api_key":            settings.APIKey,
+			"instruction":        settings.Instruction,
+			"product_info":       settings.ProductInfo,
+			"delay_ms":           settings.DelayMs,
+			"max_history":        settings.MaxHistory,
+			"batch_window_ms":    settings.BatchWindowMs,
+			"vision_enabled":     settings.VisionEnabled,
+			"account_ids":        settings.AccountIDs,
+			"rajaongkir_enabled": settings.RajaOngkirEnabled,
+			"rajaongkir_api_key": settings.RajaOngkirAPIKey,
+			"rajaongkir_origin":  settings.RajaOngkirOrigin,
+			"locked":             !user.CanUseAI,
 		})
 	})
 	api.Post("/ai/settings", func(c *fiber.Ctx) error {
@@ -1439,6 +1639,62 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+type metaConfig struct {
+	AppID        string
+	AppSecret    string
+	ConfigID     string
+	RedirectURI  string
+	VerifyToken  string
+	GraphVersion string
+}
+
+func metaConfigFromStore(c *fiber.Ctx) metaConfig {
+	_ = c
+	if Store == nil {
+		return metaConfig{}
+	}
+	return metaConfig{
+		AppID:        strings.TrimSpace(Store.GetPref(metaAppIDPrefKey)),
+		AppSecret:    strings.TrimSpace(Store.GetPref(metaAppSecretPrefKey)),
+		ConfigID:     strings.TrimSpace(Store.GetPref(metaConfigIDPrefKey)),
+		RedirectURI:  strings.TrimSpace(Store.GetPref(metaRedirectURIPrefKey)),
+		VerifyToken:  strings.TrimSpace(Store.GetPref(metaVerifyTokenPrefKey)),
+		GraphVersion: metaGraphDefaultAPIVerion,
+	}
+}
+
+func issueMetaSignupState(userID string) (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	state := hex.EncodeToString(buf)
+	metaSignupStatesMu.Lock()
+	defer metaSignupStatesMu.Unlock()
+	metaSignupStates[state] = metaSignupState{
+		UserID:    strings.TrimSpace(userID),
+		ExpiresAt: time.Now().Add(15 * time.Minute),
+	}
+	return state, nil
+}
+
+func consumeMetaSignupState(userID, state string) error {
+	metaSignupStatesMu.Lock()
+	defer metaSignupStatesMu.Unlock()
+	session, ok := metaSignupStates[strings.TrimSpace(state)]
+	if !ok {
+		return fmt.Errorf("state signup Meta tidak valid")
+	}
+	delete(metaSignupStates, strings.TrimSpace(state))
+	if time.Now().After(session.ExpiresAt) {
+		return fmt.Errorf("state signup Meta sudah kedaluwarsa")
+	}
+	if session.UserID != strings.TrimSpace(userID) {
+		return fmt.Errorf("state signup Meta tidak cocok dengan user login")
+	}
+	return nil
 }
 
 var _ = whatsmeow.MediaImage

@@ -104,6 +104,12 @@
           <span class="nav-icon nav-icon-text">AI</span>
           <span class="nav-label">InstaBlast AI</span>
         </button>
+        <button class="nav-item" data-tab="waba" onclick="switchTab('waba')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3a8.5 8.5 0 0 0-7.4 12.7L3.5 21l5.5-1.4A8.5 8.5 0 1 0 12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 8.8c.2-.4.4-.4.7-.4h.6c.2 0 .4 0 .6.4.2.5.7 1.7.8 1.8.1.2.1.3 0 .5-.1.2-.2.3-.4.5l-.3.3c-.1.1-.2.2-.1.4.1.2.6 1 1.4 1.6.9.7 1.6.9 1.8 1 .2.1.3 0 .4-.1l.6-.7c.2-.2.3-.2.5-.1.2.1 1.5.7 1.8.8.3.1.4.2.4.4 0 .2-.1 1-.7 1.5-.5.4-1.1.5-1.5.5-.4 0-1-.1-1.9-.5-.5-.2-1.2-.5-2-1.2-.6-.5-1.1-1.1-1.5-1.7-.4-.6-.8-1.3-1.1-2-.3-.7-.4-1.3-.4-1.8 0-.5.2-.9.5-1.3.2-.3.4-.4.6-.4Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">WABA Cloud</span>
+        </button>
         <button class="nav-item" data-tab="api-docs" onclick="switchTab('api-docs')">
           <span class="nav-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><path d="M7 4.5h8l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 19V6A1.5 1.5 0 0 1 7.5 4.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M15 4.5V9h4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 12h6M9 15h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
@@ -274,7 +280,7 @@
           <div class="stat-card orange"><div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div class="stat-info"><div class="stat-label">AI Gagal</div><div class="stat-value" id="aiStatFailed">0</div></div></div>
         </div>
         <div class="two-column">
-          <div class="column"><div class="card card-purple"><div class="card-title"><span>AI</span> Konfigurasi Auto-Reply</div><label class="toggle"><input type="checkbox" id="aiEnabled" /> Aktifkan balas otomatis AI</label><label class="toggle"><input type="checkbox" id="aiOcrEnabled" checked /> Aktifkan AI Vision untuk gambar masuk</label><div class="form-group"><label>Pilih akun WhatsApp untuk AI</label><div id="aiAccountPicker" class="account-picker"><div class="empty-state-inline">Memuat akun...</div></div></div><div class="form-group"><label>Delay Balas (ms)</label><input type="number" id="aiDelayMs" value="1200" min="0" /></div><div class="form-row"><div class="form-group"><label>Memory Riwayat</label><input type="number" id="aiMaxHistory" value="15" min="1" max="50" /></div><div class="form-group"><label>Batch Window (ms)</label><input type="number" id="aiBatchWindowMs" value="4500" min="500" max="30000" /></div></div><div class="hint">Pesan yang masuk berdekatan dalam satu chat akan digabung sebelum AI membalas.</div></div></div>
+          <div class="column"><div class="card card-purple"><div class="card-title"><span>AI</span> Konfigurasi Auto-Reply</div><label class="toggle"><input type="checkbox" id="aiEnabled" /> Aktifkan balas otomatis AI</label><label class="toggle"><input type="checkbox" id="aiOcrEnabled" checked /> Aktifkan AI Vision untuk gambar masuk</label><label class="toggle"><input type="checkbox" id="aiRajaOngkirEnabled" /> Integrasi RajaOngkir untuk cek ongkir</label><div id="aiRajaOngkirFields" style="display:none;"><div class="form-group"><label>API Key RajaOngkir</label><input type="password" id="aiRajaOngkirApiKey" placeholder="Masukkan API key Shipping Cost" /></div><div class="form-group"><label>Lokasi Origin</label><input type="text" id="aiRajaOngkirOrigin" placeholder="Contoh: Jakarta Selatan, DKI Jakarta" /></div><div class="hint">Satu hit biasanya berarti satu request ke endpoint RajaOngkir, misalnya sekali cek ongkir atau sekali pencarian tujuan.</div></div><div class="form-group"><label>Pilih akun WhatsApp untuk AI</label><div id="aiAccountPicker" class="account-picker"><div class="empty-state-inline">Memuat akun...</div></div></div><div class="form-group"><label>Delay Balas (ms)</label><input type="number" id="aiDelayMs" value="1200" min="0" /></div><div class="form-row"><div class="form-group"><label>Memory Riwayat</label><input type="number" id="aiMaxHistory" value="15" min="1" max="50" /></div><div class="form-group"><label>Batch Window (ms)</label><input type="number" id="aiBatchWindowMs" value="4500" min="500" max="30000" /></div></div><div class="hint">Pesan yang masuk berdekatan dalam satu chat akan digabung sebelum AI membalas.</div></div></div>
           <div class="column"><div class="card"><div class="card-title"><span>Prompt</span> Prompt AI</div><div class="form-group"><label>Instruksi AI</label><textarea id="aiInstruction" rows="6" placeholder="Contoh: Jawab singkat, ramah, dan fokus closing.">Jawab dengan singkat, jelas, natural, dan sopan dalam bahasa Indonesia.</textarea></div><div class="form-group"><label>Info Produk</label><textarea id="aiProductInfo" rows="6" placeholder="Masukkan detail produk atau layanan agar AI menjawab lebih akurat."></textarea></div><div class="btn-row"><button class="btn btn-primary" onclick="saveAISettings()">Simpan AI</button><button class="btn btn-secondary" onclick="testAI()">Test AI</button></div><div id="aiStatus" class="status-text"></div><div id="aiLastError" class="status-text" style="color:#ef4444;"></div></div></div>
         </div>
       </div>
@@ -438,6 +444,51 @@ Content-Type: application/json
           </div>
         </div>
       </div>
+      <div class="tab-pane" id="tab-waba">
+        <div class="page-header"><h1 class="page-title">WABA Cloud</h1><p class="page-subtitle">Fitur tambahan untuk onboarding WhatsApp Business Account resmi via Meta Embedded Signup tanpa mengganggu sistem QR yang sudah ada.</p></div>
+        <div class="two-column">
+          <div class="column">
+            <div class="card">
+              <div class="card-title"><span>Meta</span> Meta Embedded Signup</div>
+              <div class="waba-feature-card">
+                <div class="waba-feature-badges">
+                  <span class="feature-badge">OFFICIAL</span>
+                  <span class="feature-badge feature-badge-green">CLOUD</span>
+                  <span class="feature-badge feature-badge-orange">BETA</span>
+                </div>
+                <h3>Pendaftaran WABA Otomatis</h3>
+                <p>Hubungkan nomor WhatsApp Business API resmi melalui popup Meta seperti contoh yang Anda kirim. Modul ini terpisah dari login QR biasa.</p>
+                <div class="hint">Status saat ini: signup WABA Cloud sudah dipisah dari sistem QR lama, dan hasil onboarding akan disinkronkan ke akun WABA tenant ini.</div>
+                <div class="btn-row" style="margin-top:16px;">
+                  <button class="btn btn-primary" onclick="openMetaSignupModal()">Hubungkan dengan Facebook</button>
+                  <button class="btn btn-secondary" onclick="loadMetaAccounts()">Refresh Daftar</button>
+                </div>
+                <div id="metaSignupStatus" class="status-text"></div>
+              </div>
+            </div>
+          </div>
+          <div class="column">
+            <div class="card">
+              <div class="card-title"><span>Info</span> Ringkasan WABA</div>
+              <div class="stats-grid">
+                <div class="stat-card blue"><div class="stat-info"><div class="stat-label">Total WABA</div><div class="stat-value" id="metaStatTotal">0</div></div></div>
+                <div class="stat-card green"><div class="stat-info"><div class="stat-label">Siap Setup</div><div class="stat-value" id="metaStatReady">0</div></div></div>
+                <div class="stat-card orange"><div class="stat-info"><div class="stat-label">Pending</div><div class="stat-value" id="metaStatPending">0</div></div></div>
+              </div>
+              <div class="hint">Jika flow Meta selesai, akun akan langsung dicoba sinkronkan ke WABA ID dan Phone Number ID asli. Jika masih ada kendala di sisi Meta, status akan tampil sebagai `pending_setup` beserta catatannya.</div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>List</span> Daftar WABA Cloud</div>
+          <div style="overflow-x:auto; margin-top:8px;">
+            <table class="data-table">
+              <thead><tr><th>Nama</th><th>WABA ID</th><th>Phone Number ID</th><th>Nomor</th><th>Status</th><th>Onboarding</th><th>Update</th></tr></thead>
+              <tbody id="metaAccountsTableBody"><tr><td colspan="7" class="empty-cell">Belum ada akun WABA Cloud</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
       <div class="tab-pane" id="tab-history">
         <div class="page-header"><h1 class="page-title">Riwayat Broadcast</h1><p class="page-subtitle">Catatan lengkap setiap sesi pengiriman broadcast</p></div>
         <div class="card"><div class="card-title"><span>Ringkasan</span> Ringkasan</div><div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:8px;"><div style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#22c55e;" id="histTotalSent">0</div><div style="font-size:11px; color:var(--muted);">Total Terkirim</div></div><div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#ef4444;" id="histTotalFailed">0</div><div style="font-size:11px; color:var(--muted);">Total Gagal</div></div><div style="background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#3b82f6;" id="histTotalSessions">0</div><div style="font-size:11px; color:var(--muted);">Total Sesi</div></div><div style="background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#a855f7;" id="histSuccessRate">0%</div><div style="font-size:11px; color:var(--muted);">Success Rate</div></div></div></div>
@@ -487,6 +538,18 @@ Content-Type: application/json
               <div class="btn-row"><button class="btn btn-primary" onclick="saveAdminAIConfig()">Simpan API Key</button></div>
               <div id="adminAIStatus" class="status-text"></div>
             </div>
+            <div class="card">
+              <div class="card-title"><span>Meta</span> Konfigurasi WABA Cloud</div>
+              <div class="form-group"><label>App ID</label><input type="text" id="adminMetaAppId" placeholder="Meta App ID" /></div>
+              <div class="form-group"><label>App Secret</label><input type="password" id="adminMetaAppSecret" placeholder="Meta App Secret" /></div>
+              <div class="form-group"><label>Configuration ID</label><input type="text" id="adminMetaConfigId" placeholder="Facebook Login for Business Configuration ID" /></div>
+              <div class="form-group"><label>Redirect URI</label><input type="text" id="adminMetaRedirectUri" placeholder="https://domain-anda/api/meta/signup/callback" /></div>
+              <div class="form-group"><label>Verify Token Webhook</label><input type="text" id="adminMetaVerifyToken" placeholder="token-verifikasi-webhook-meta" /></div>
+              <div class="hint">Field ini hanya menyiapkan onboarding Meta. Tidak mengubah sistem QR WhatsApp yang sekarang.</div>
+              <div class="hint">Gunakan domain HTTPS publik yang sama dengan app ini. Redirect URI fallback: <code>/api/meta/signup/callback</code>. Webhook verify/callback: <code>/api/meta/webhook</code>.</div>
+              <div class="btn-row"><button class="btn btn-primary" onclick="saveAdminMetaConfig()">Simpan Konfigurasi Meta</button></div>
+              <div id="adminMetaStatus" class="status-text"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -507,6 +570,33 @@ Content-Type: application/json
   </div>
 
   <div class="toast-container" id="toastContainer"></div>
+
+  <div class="modal-overlay" id="metaSignupModal" onclick="if(event.target===this)closeMetaSignupModal()">
+    <div class="modal-card">
+      <div class="modal-card-header">
+        <div>
+          <div class="modal-card-title">Hubungkan WABA</div>
+          <div class="modal-card-subtitle">Pendaftaran WABA otomatis melalui portal resmi Meta.</div>
+        </div>
+        <button class="modal-close-btn" onclick="closeMetaSignupModal()">×</button>
+      </div>
+      <div class="modal-card-body">
+        <div class="waba-modal-icon">WA</div>
+        <h3 class="waba-modal-heading">Pendaftaran WABA Otomatis</h3>
+        <p class="waba-modal-copy">Fitur ini membantu Anda menghubungkan nomor WhatsApp Business resmi ke proyek ini secara bertahap, tanpa mengganggu akun QR yang sudah aktif.</p>
+        <div class="waba-checklist">
+          <div class="waba-check-item">Gunakan akun Facebook Admin Meta Business.</div>
+          <div class="waba-check-item">Siapkan nomor telepon aktif yang ingin didaftarkan.</div>
+          <div class="waba-check-item">Popup resmi Facebook akan terbuka untuk otorisasi.</div>
+        </div>
+        <div id="metaModalStatus" class="status-text"></div>
+      </div>
+    <div class="modal-card-footer">
+      <button class="btn btn-secondary" onclick="closeMetaSignupModal()">Kembali</button>
+      <button class="btn btn-primary" id="metaLaunchButton" onclick="launchMetaSignup()" disabled>Lanjutkan dengan Facebook</button>
+    </div>
+  </div>
+  </div>
 
   <script src="/assets/app.js"></script>
 </body>

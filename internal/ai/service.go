@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -55,15 +58,18 @@ type PreferenceStore interface {
 type LoggerFunc func(msg, level string)
 
 type Settings struct {
-	Enabled       bool     `json:"enabled"`
-	APIKey        string   `json:"api_key"`
-	Instruction   string   `json:"instruction"`
-	ProductInfo   string   `json:"product_info"`
-	DelayMs       int      `json:"delay_ms"`
-	MaxHistory    int      `json:"max_history"`
-	BatchWindowMs int      `json:"batch_window_ms"`
-	VisionEnabled bool     `json:"vision_enabled"`
-	AccountIDs    []string `json:"account_ids"`
+	Enabled           bool     `json:"enabled"`
+	APIKey            string   `json:"api_key"`
+	Instruction       string   `json:"instruction"`
+	ProductInfo       string   `json:"product_info"`
+	DelayMs           int      `json:"delay_ms"`
+	MaxHistory        int      `json:"max_history"`
+	BatchWindowMs     int      `json:"batch_window_ms"`
+	VisionEnabled     bool     `json:"vision_enabled"`
+	AccountIDs        []string `json:"account_ids"`
+	RajaOngkirEnabled bool     `json:"rajaongkir_enabled"`
+	RajaOngkirAPIKey  string   `json:"rajaongkir_api_key"`
+	RajaOngkirOrigin  string   `json:"rajaongkir_origin"`
 }
 
 type Stats struct {
@@ -110,6 +116,43 @@ type desktopSettings struct {
 	APIKey      string `json:"apiKey"`
 }
 
+type rajaOngkirDestination struct {
+	ID              int    `json:"id"`
+	Label           string `json:"label"`
+	ProvinceName    string `json:"province_name"`
+	CityName        string `json:"city_name"`
+	DistrictName    string `json:"district_name"`
+	SubdistrictName string `json:"subdistrict_name"`
+	ZipCode         string `json:"zip_code"`
+}
+
+type rajaOngkirDestinationResponse struct {
+	Meta struct {
+		Message string `json:"message"`
+		Code    int    `json:"code"`
+		Status  string `json:"status"`
+	} `json:"meta"`
+	Data []rajaOngkirDestination `json:"data"`
+}
+
+type rajaOngkirCost struct {
+	Name        string `json:"name"`
+	Code        string `json:"code"`
+	Service     string `json:"service"`
+	Description string `json:"description"`
+	Cost        int    `json:"cost"`
+	ETD         string `json:"etd"`
+}
+
+type rajaOngkirCostResponse struct {
+	Meta struct {
+		Message string `json:"message"`
+		Code    int    `json:"code"`
+		Status  string `json:"status"`
+	} `json:"meta"`
+	Data []rajaOngkirCost `json:"data"`
+}
+
 type Service struct {
 	mu         sync.Mutex
 	settings   Settings
@@ -153,6 +196,8 @@ func sanitizeSettings(s Settings) Settings {
 	s.APIKey = normalizeAPIKey(s.APIKey)
 	s.Instruction = strings.TrimSpace(s.Instruction)
 	s.ProductInfo = strings.TrimSpace(s.ProductInfo)
+	s.RajaOngkirAPIKey = strings.TrimSpace(s.RajaOngkirAPIKey)
+	s.RajaOngkirOrigin = strings.TrimSpace(s.RajaOngkirOrigin)
 
 	if s.DelayMs < 0 {
 		s.DelayMs = 0
@@ -209,12 +254,21 @@ func (s *Service) Save(store PreferenceStore, settings Settings) (Settings, erro
 	if settings.Enabled && len(settings.AccountIDs) == 0 {
 		return settings, fmt.Errorf("Pilih minimal satu akun WhatsApp untuk InstaBlast AI")
 	}
+	if settings.RajaOngkirEnabled {
+		if settings.RajaOngkirAPIKey == "" {
+			return settings, fmt.Errorf("API key RajaOngkir wajib diisi saat integrasi diaktifkan")
+		}
+		if settings.RajaOngkirOrigin == "" {
+			return settings, fmt.Errorf("Lokasi origin RajaOngkir wajib diisi saat integrasi diaktifkan")
+		}
+	}
 	if store != nil {
 		if err := store.SetPrefJSON(SettingsPrefKey, settings); err != nil {
 			return settings, err
 		}
 	}
 	s.mu.Lock()
+	s.resetConversationStateLocked()
 	s.settings = settings
 	s.mu.Unlock()
 	return settings, nil
@@ -387,6 +441,29 @@ func (s *Service) processPendingChat(chatID string, client *whatsmeow.Client) {
 	}
 
 	s.remember(chatID, "user", memoryText, settings.MaxHistory)
+
+	if directReply, handled, directErr := s.tryAnswerRajaOngkir(context.Background(), settings, history, userText); handled {
+		if directErr != nil {
+			s.log(fmt.Sprintf("Integrasi RajaOngkir gagal untuk %s: %v", compactChatID(chatID), directErr), "warning")
+		}
+		cleaned := cleanReply(directReply)
+		if cleaned == "" {
+			cleaned = "Maaf, saya belum bisa mengambil data ongkir saat ini."
+		}
+		if err := s.sendReply(client, chatJID, cleaned, settings.DelayMs); err != nil {
+			s.setFailure(err)
+			s.log(fmt.Sprintf("AI gagal mengirim balasan RajaOngkir ke %s: %v", compactChatID(chatID), err), "error")
+			return
+		}
+		s.remember(chatID, "assistant", cleaned, settings.MaxHistory)
+		s.mu.Lock()
+		s.stats.Replied++
+		s.stats.LastReplyAt = time.Now()
+		s.stats.LastError = ""
+		s.mu.Unlock()
+		s.log(fmt.Sprintf("AI membalas via RajaOngkir ke %s", compactChatID(chatID)), "success")
+		return
+	}
 
 	reply, err := s.generateReply(context.Background(), settings, history, userText)
 	if err != nil {
@@ -819,11 +896,407 @@ func buildSystemPrompt(settings Settings) string {
 		base = "Jawab dengan singkat, jelas, natural, dan sopan dalam bahasa Indonesia."
 	}
 	parts := []string{strings.TrimSpace(base)}
+	if settings.RajaOngkirEnabled && strings.TrimSpace(settings.RajaOngkirOrigin) != "" {
+		parts = append(parts, strings.TrimSpace(fmt.Sprintf(
+			"ATURAN ONGKIR DAN ASAL PENGIRIMAN: Lokasi origin/gudang/pengirim default yang resmi adalah %s. Jika user menanyakan asal pengiriman, gudang, atau ongkir dari kota mana, gunakan origin ini sebagai sumber kebenaran utama. Jika ada info lain yang bertentangan di riwayat chat atau info produk, origin RajaOngkir ini yang harus diprioritaskan. Jangan menyebut kota asal lain selain origin ini kecuali user secara eksplisit membahas cabang lain dan Anda memang punya data pasti.",
+			settings.RajaOngkirOrigin,
+		)))
+	}
 	if strings.TrimSpace(settings.ProductInfo) != "" {
 		parts = append(parts, "Info Produk:\n"+strings.TrimSpace(settings.ProductInfo))
 	}
 	parts = append(parts, noFormatRule)
 	return strings.Join(parts, "\n\n")
+}
+
+func (s *Service) tryAnswerRajaOngkir(ctx context.Context, settings Settings, history []chatTurn, userText string) (string, bool, error) {
+	if !settings.RajaOngkirEnabled || strings.TrimSpace(settings.RajaOngkirAPIKey) == "" || strings.TrimSpace(settings.RajaOngkirOrigin) == "" {
+		return "", false, nil
+	}
+
+	if looksLikeOriginQuestion(userText) {
+		return fmt.Sprintf("Siap, pengiriman kami berasal dari *%s* ya.", settings.RajaOngkirOrigin), true, nil
+	}
+
+	combinedText := strings.TrimSpace(userText)
+	if !looksLikeShippingCostQuestion(userText) {
+		current := normalizeHumanText(userText)
+		if strings.Contains(current, "raja ongkir") || strings.Contains(current, "sesuai") || strings.Contains(current, "sekitar") {
+			if recent := latestUserTurn(history); recent != "" {
+				combinedText = strings.TrimSpace(recent + "\n" + userText)
+			}
+		}
+		if !looksLikeShippingCostQuestion(combinedText) {
+			return "", false, nil
+		}
+	}
+
+	destinationQuery := extractDestinationQuery(combinedText)
+	if destinationQuery == "" {
+		return "Siap, untuk cek ongkir yang lebih akurat kirim dulu *kecamatan/kelurahan tujuan* atau *kode pos tujuan* ya.", true, nil
+	}
+
+	weightGrams, assumedWeight := extractWeightGrams(combinedText)
+	if weightGrams <= 0 {
+		weightGrams = 1000
+		assumedWeight = true
+	}
+
+	couriers := extractRequestedCouriers(combinedText)
+	if couriers == "" {
+		couriers = "jne:sicepat:tiki:pos"
+	}
+
+	origin, err := s.searchRajaOngkirDestination(ctx, settings.RajaOngkirAPIKey, settings.RajaOngkirOrigin)
+	if err != nil {
+		return "Maaf, saya belum bisa membaca data origin pengiriman saat ini. Coba sebentar lagi ya.", true, err
+	}
+	destination, err := s.searchRajaOngkirDestination(ctx, settings.RajaOngkirAPIKey, destinationQuery)
+	if err != nil {
+		return fmt.Sprintf("Lokasi tujuan *%s* belum ketemu di sistem. Coba kirim *kecamatan/kelurahan* atau *kode posnya* ya biar saya cekkan lagi.", destinationQuery), true, err
+	}
+
+	costs, err := s.calculateRajaOngkir(ctx, settings.RajaOngkirAPIKey, origin.ID, destination.ID, weightGrams, couriers)
+	if err != nil {
+		return "Maaf, data ongkir sedang belum bisa saya ambil sekarang. Coba kirim ulang beberapa saat lagi ya.", true, err
+	}
+	if len(costs) == 0 {
+		return fmt.Sprintf("Maaf ya, saat ini belum ada layanan ongkir yang tersedia untuk rute *%s* ke *%s*.", settings.RajaOngkirOrigin, destinationQuery), true, nil
+	}
+
+	reply := formatRajaOngkirReply(settings.RajaOngkirOrigin, origin, destination, costs, weightGrams, assumedWeight)
+	return reply, true, nil
+}
+
+func latestUserTurn(history []chatTurn) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		turn := history[i]
+		if strings.TrimSpace(turn.Role) == "user" && strings.TrimSpace(turn.Content) != "" {
+			return strings.TrimSpace(turn.Content)
+		}
+	}
+	return ""
+}
+
+func looksLikeOriginQuestion(text string) bool {
+	normalized := normalizeHumanText(text)
+	patterns := []string{
+		"pengiriman dari mana",
+		"asal pengiriman",
+		"asal kirim",
+		"dikirim dari mana",
+		"gudang di mana",
+		"gudang dimana",
+	}
+	for _, pattern := range patterns {
+		if strings.Contains(normalized, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeShippingCostQuestion(text string) bool {
+	normalized := normalizeHumanText(text)
+	patterns := []string{
+		"ongkir",
+		"ongkos kirim",
+		"biaya kirim",
+		"tarif kirim",
+		"cek ongkir",
+	}
+	for _, pattern := range patterns {
+		if strings.Contains(normalized, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeHumanText(text string) string {
+	text = strings.ToLower(strings.TrimSpace(text))
+	replacer := strings.NewReplacer("\r", " ", "\n", " ", "\t", " ", ",", " ", ".", " ", "?", " ", "!", " ", ":", " ", ";", " ")
+	text = replacer.Replace(text)
+	return strings.Join(strings.Fields(text), " ")
+}
+
+func extractDestinationQuery(text string) string {
+	raw := strings.TrimSpace(text)
+	candidates := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(?:ongkir|ongkos kirim|biaya kirim|tarif kirim)[^a-z0-9]+(?:ke|tujuan)\s+(.+)$`),
+		regexp.MustCompile(`(?i)\bke\s+(.+)$`),
+	}
+	for _, re := range candidates {
+		match := re.FindStringSubmatch(raw)
+		if len(match) < 2 {
+			continue
+		}
+		result := cleanDestinationQuery(match[1])
+		if result != "" {
+			return result
+		}
+	}
+	return ""
+}
+
+func cleanDestinationQuery(value string) string {
+	value = strings.TrimSpace(value)
+	if idx := strings.IndexAny(value, "?!\n\r"); idx >= 0 {
+		value = value[:idx]
+	}
+	value = strings.Trim(value, " ,.;:-")
+	stopwords := map[string]bool{
+		"berapa": true,
+		"brp":    true,
+		"ya":     true,
+		"yah":    true,
+		"dong":   true,
+		"kak":    true,
+		"min":    true,
+		"nih":    true,
+	}
+	fields := strings.Fields(value)
+	for len(fields) > 0 && stopwords[strings.ToLower(fields[len(fields)-1])] {
+		fields = fields[:len(fields)-1]
+	}
+	return strings.TrimSpace(strings.Join(fields, " "))
+}
+
+func extractWeightGrams(text string) (int, bool) {
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(\d+(?:[.,]\d+)?)\s*(kg|kilogram|kilo)\b`),
+		regexp.MustCompile(`(?i)(\d+)\s*(gr|gram|g)\b`),
+	}
+	for _, re := range patterns {
+		match := re.FindStringSubmatch(text)
+		if len(match) < 3 {
+			continue
+		}
+		raw := strings.ReplaceAll(match[1], ",", ".")
+		unit := strings.ToLower(match[2])
+		if strings.HasPrefix(unit, "k") {
+			if val, err := strconv.ParseFloat(raw, 64); err == nil && val > 0 {
+				return int(val * 1000), false
+			}
+		}
+		if val, err := strconv.Atoi(strings.Split(raw, ".")[0]); err == nil && val > 0 {
+			return val, false
+		}
+	}
+	return 0, true
+}
+
+func extractRequestedCouriers(text string) string {
+	normalized := normalizeHumanText(text)
+	order := []string{"jne", "sicepat", "tiki", "pos", "jnt", "anteraja"}
+	found := make([]string, 0, len(order))
+	for _, courier := range order {
+		if strings.Contains(normalized, courier) {
+			found = append(found, courier)
+		}
+	}
+	return strings.Join(found, ":")
+}
+
+func (s *Service) searchRajaOngkirDestination(ctx context.Context, apiKey, query string) (rajaOngkirDestination, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return rajaOngkirDestination{}, fmt.Errorf("empty location query")
+	}
+	reqCtx := ctx
+	if reqCtx == nil {
+		reqCtx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(reqCtx, 20*time.Second)
+	defer cancel()
+
+	endpoint := "https://rajaongkir.komerce.id/api/v1/destination/domestic-destination?search=" + url.QueryEscape(query) + "&limit=5&offset=0"
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return rajaOngkirDestination{}, err
+	}
+	req.Header.Set("key", apiKey)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return rajaOngkirDestination{}, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return rajaOngkirDestination{}, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return rajaOngkirDestination{}, fmt.Errorf("destination api status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var parsed rajaOngkirDestinationResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return rajaOngkirDestination{}, err
+	}
+	if len(parsed.Data) == 0 {
+		return rajaOngkirDestination{}, fmt.Errorf("destination not found for %s", query)
+	}
+	return parsed.Data[0], nil
+}
+
+func (s *Service) calculateRajaOngkir(ctx context.Context, apiKey string, originID, destinationID, weightGrams int, couriers string) ([]rajaOngkirCost, error) {
+	if originID <= 0 || destinationID <= 0 {
+		return nil, fmt.Errorf("invalid origin/destination id")
+	}
+	if weightGrams <= 0 {
+		weightGrams = 1000
+	}
+	form := url.Values{}
+	form.Set("origin", strconv.Itoa(originID))
+	form.Set("destination", strconv.Itoa(destinationID))
+	form.Set("weight", strconv.Itoa(weightGrams))
+	form.Set("courier", couriers)
+	form.Set("price", "lowest")
+
+	reqCtx := ctx
+	if reqCtx == nil {
+		reqCtx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(reqCtx, 25*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, "https://rajaongkir.komerce.id/api/v1/calculate/domestic-cost", strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("key", apiKey)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("cost api status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var parsed rajaOngkirCostResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, err
+	}
+	sort.Slice(parsed.Data, func(i, j int) bool {
+		if parsed.Data[i].Cost == parsed.Data[j].Cost {
+			return strings.Compare(parsed.Data[i].Code+parsed.Data[i].Service, parsed.Data[j].Code+parsed.Data[j].Service) < 0
+		}
+		return parsed.Data[i].Cost < parsed.Data[j].Cost
+	})
+	return parsed.Data, nil
+}
+
+func formatRajaOngkirReply(originText string, origin, destination rajaOngkirDestination, costs []rajaOngkirCost, weightGrams int, assumedWeight bool) string {
+	lines := []string{
+		fmt.Sprintf("Siap, saya bantu cek estimasi ongkir dari *%s* ke *%s* ya.", originText, compactDestinationLabel(destination)),
+	}
+	if assumedWeight {
+		lines = append(lines, fmt.Sprintf("Untuk sementara saya hitungkan dengan asumsi berat *%s* dulu.", formatWeight(weightGrams)))
+	} else {
+		lines = append(lines, fmt.Sprintf("Berikut estimasi untuk berat *%s*.", formatWeight(weightGrams)))
+	}
+	limit := 4
+	if len(costs) < limit {
+		limit = len(costs)
+	}
+	for i := 0; i < limit; i++ {
+		item := costs[i]
+		lines = append(lines, fmt.Sprintf("- *%s %s*: Rp%s, estimasi %s", strings.ToUpper(item.Code), item.Service, formatIDR(item.Cost), normalizeETD(item.ETD)))
+	}
+	lines = append(lines, fmt.Sprintf("Origin yang dipakai sistem: *%s*.", compactDestinationLabel(origin)))
+	if assumedWeight {
+		lines = append(lines, "Kalau Anda kirim *berat paket* yang pasti, saya bisa hitungkan lagi biar lebih akurat.")
+	}
+	lines = append(lines, "Kalau mau, saya lanjut bantu cekkan kurir yang paling hemat atau yang paling cepat.")
+	return strings.Join(lines, "\n")
+}
+
+func compactDestinationLabel(item rajaOngkirDestination) string {
+	parts := []string{
+		strings.TrimSpace(item.SubdistrictName),
+		strings.TrimSpace(item.DistrictName),
+		strings.TrimSpace(item.CityName),
+	}
+	filtered := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		key := strings.ToLower(part)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		filtered = append(filtered, titleCaseWords(part))
+	}
+	if item.ZipCode != "" {
+		filtered = append(filtered, item.ZipCode)
+	}
+	return strings.Join(filtered, ", ")
+}
+
+func titleCaseWords(value string) string {
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(value)))
+	for i, field := range fields {
+		if field == "" {
+			continue
+		}
+		fields[i] = strings.ToUpper(field[:1]) + field[1:]
+	}
+	return strings.Join(fields, " ")
+}
+
+func formatWeight(weightGrams int) string {
+	if weightGrams%1000 == 0 {
+		return fmt.Sprintf("%d kg", weightGrams/1000)
+	}
+	return fmt.Sprintf("%d gram", weightGrams)
+}
+
+func formatIDR(value int) string {
+	raw := strconv.Itoa(value)
+	if len(raw) <= 3 {
+		return raw
+	}
+	var parts []string
+	for len(raw) > 3 {
+		parts = append([]string{raw[len(raw)-3:]}, parts...)
+		raw = raw[:len(raw)-3]
+	}
+	if raw != "" {
+		parts = append([]string{raw}, parts...)
+	}
+	return strings.Join(parts, ".")
+}
+
+func normalizeETD(etd string) string {
+	etd = strings.TrimSpace(etd)
+	if etd == "" {
+		return "estimasi belum tersedia"
+	}
+	return etd + " hari"
+}
+
+func (s *Service) resetConversationStateLocked() {
+	for _, entry := range s.pending {
+		if entry != nil && entry.Timer != nil {
+			entry.Timer.Stop()
+		}
+	}
+	s.pending = make(map[string]*pendingChat)
+	s.histories = make(map[string][]chatTurn)
+	s.seen = make(map[string]time.Time)
 }
 
 func accountAllowed(accountID string, allowed []string) bool {

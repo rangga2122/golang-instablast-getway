@@ -279,6 +279,173 @@ html, body {
   box-shadow: 0 0 30px rgba(0,168,132,0.08);
 }
 
+.feature-badge-green {
+  background: rgba(34,197,94,0.14);
+  color: #15803d;
+  border-color: rgba(34,197,94,0.2);
+}
+
+.feature-badge-orange {
+  background: rgba(245,158,11,0.14);
+  color: #b45309;
+  border-color: rgba(245,158,11,0.2);
+}
+
+.waba-feature-card {
+  padding: 6px 0 0;
+}
+
+.waba-feature-card h3 {
+  font-size: 24px;
+  line-height: 1.1;
+  margin-bottom: 10px;
+  letter-spacing: -0.5px;
+}
+
+.waba-feature-card p {
+  color: var(--text-secondary);
+  max-width: 56ch;
+}
+
+.waba-feature-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 27, 33, 0.46);
+  backdrop-filter: blur(6px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 200;
+}
+
+.modal-overlay.open {
+  display: flex;
+}
+
+.modal-card {
+  width: min(560px, 100%);
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(247,251,250,0.98));
+  border: 1px solid rgba(0,168,132,0.16);
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgba(17,27,33,0.18);
+  overflow: hidden;
+}
+
+.modal-card-header,
+.modal-card-footer {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-card-footer {
+  border-bottom: none;
+  border-top: 1px solid var(--border);
+}
+
+.modal-card-body {
+  padding: 28px 22px;
+  text-align: center;
+}
+
+.modal-card-title {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.modal-card-subtitle {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.modal-close-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.9);
+  cursor: pointer;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+
+.waba-modal-icon {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: #017561;
+  background: radial-gradient(circle at top, rgba(37,211,102,0.18), rgba(0,168,132,0.08));
+  border: 1px solid rgba(0,168,132,0.18);
+}
+
+.waba-modal-heading {
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.6px;
+  margin-bottom: 10px;
+}
+
+.waba-modal-copy {
+  max-width: 42ch;
+  margin: 0 auto;
+  color: var(--text-secondary);
+}
+
+.waba-checklist {
+  margin-top: 22px;
+  padding: 18px;
+  text-align: left;
+  background: rgba(0,168,132,0.05);
+  border: 1px solid rgba(0,168,132,0.12);
+  border-radius: 14px;
+}
+
+.waba-check-item {
+  position: relative;
+  padding-left: 28px;
+  color: var(--fg);
+}
+
+.waba-check-item + .waba-check-item {
+  margin-top: 12px;
+}
+
+.waba-check-item::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  background: rgba(34,197,94,0.14);
+  color: #15803d;
+}
+
 /* ===== WA HERO ===== */
 .wa-hero-card {
   position: relative;
