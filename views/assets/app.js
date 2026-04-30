@@ -1874,9 +1874,8 @@ async function prepareMetaSignup() {
       const data = await api('/meta/signup/session');
       metaSignupConfig = data || {};
       metaSignupState = data.state || '';
-      await ensureMetaFacebookSDK(data.app_id, data.graph_version);
       metaSignupReadyAt = Date.now();
-      metaSignupSDKReady = true;
+      metaSignupSDKReady = !!(data && data.launch_url && data.state);
       syncMetaSignupLaunchState();
       if ($('metaModalStatus')) {
         $('metaModalStatus').textContent = isMetaSignupChecklistComplete()
@@ -1938,11 +1937,11 @@ async function launchMetaSignup() {
     if (!metaSignupConfig || !metaSignupState || (Date.now() - metaSignupReadyAt) > (10 * 60 * 1000)) {
       throw new Error('Sesi Meta belum siap. Tutup modal lalu buka lagi.');
     }
+    if (!metaSignupConfig.launch_url) {
+      throw new Error('URL signup Meta belum tersedia');
+    }
     if (!isMetaSignupChecklistComplete()) {
       throw new Error('Centang dulu checklist penting sebelum lanjut ke Facebook.');
-    }
-    if (!window.FB || typeof window.FB.login !== 'function') {
-      throw new Error('Facebook SDK belum siap');
     }
     if ($('metaModalStatus')) {
       $('metaModalStatus').textContent = 'Popup resmi Facebook sedang dibuka...';
@@ -1952,14 +1951,14 @@ async function launchMetaSignup() {
       $('metaSignupStatus').textContent = 'Selesaikan semua langkah di popup Facebook sampai tombol Finish.';
       $('metaSignupStatus').style.color = '#f59e0b';
     }
-    window.FB.login(handleMetaFBLoginResponse, {
-      config_id: metaSignupConfig.config_id,
-      response_type: 'code',
-      override_default_response_type: true,
-      extras: {
-        setup: {}
-      }
-    });
+    const popup = window.open(
+      metaSignupConfig.launch_url,
+      'MetaEmbeddedSignup',
+      'width=1200,height=800,scrollbars=yes,resizable=yes'
+    );
+    if (!popup) {
+      throw new Error('Popup Facebook diblokir browser. Izinkan popup lalu coba lagi.');
+    }
   } catch (e) {
     if ($('metaModalStatus')) {
       $('metaModalStatus').textContent = e.message;
