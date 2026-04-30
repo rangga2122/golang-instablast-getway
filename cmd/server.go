@@ -536,12 +536,15 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if strings.TrimSpace(redirectURI) == "" {
 			redirectURI = strings.TrimRight(c.BaseURL(), "/") + "/api/meta/signup/callback"
 		}
-		extrasJSON := `{"setup":{},"featureType":"whatsapp_business_app_onboarding","sessionInfoVersion":"3"}`
+		extrasJSON := `{"setup":{},"feature":"whatsapp_embedded_signup","featureType":"whatsapp_business_app_onboarding","sessionInfoVersion":"3"}`
+		fallbackRedirectURI := strings.TrimRight(c.BaseURL(), "/") + "/"
 		launchURL := fmt.Sprintf(
-			"https://www.facebook.com/%s/dialog/oauth?client_id=%s&redirect_uri=%s&state=%s&response_type=code&scope=%s&config_id=%s&override_default_response_type=true&extras=%s",
+			"https://www.facebook.com/%s/dialog/oauth?app_id=%s&client_id=%s&redirect_uri=%s&fallback_redirect_uri=%s&state=%s&response_type=code&scope=%s&config_id=%s&display=popup&override_default_response_type=true&extras=%s",
 			url.QueryEscape(cfg.GraphVersion),
 			url.QueryEscape(cfg.AppID),
+			url.QueryEscape(cfg.AppID),
 			url.QueryEscape(redirectURI),
+			url.QueryEscape(fallbackRedirectURI),
 			url.QueryEscape(state),
 			url.QueryEscape("whatsapp_business_management,whatsapp_business_messaging"),
 			url.QueryEscape(cfg.ConfigID),
