@@ -142,7 +142,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 
 	app.Use(func(c *fiber.Ctx) error {
 		path := c.Path()
-		if strings.HasPrefix(path, "/assets") || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/api/auth/login" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" {
+		if strings.HasPrefix(path, "/assets") || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/privacy-policy" || path == "/terms-of-service" || path == "/data-deletion" || path == "/api/auth/login" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" {
 			return c.Next()
 		}
 		if AuthService == nil {
@@ -193,6 +193,97 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		}
 		c.Set("Content-Type", "image/x-icon")
 		return c.Send(data)
+	})
+	app.Get("/privacy-policy", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "text/html; charset=utf-8")
+		return c.SendString(legalPageHTML(legalPageContent{
+			Title:       "Privacy Policy",
+			Heading:     "Kebijakan Privasi InstaBlast Pro",
+			Description: "Halaman ini menjelaskan bagaimana InstaBlast Pro mengelola data akun, pesan, dan integrasi pihak ketiga seperti Meta dan WhatsApp Business.",
+			Sections: []legalSection{
+				{
+					Title: "Data yang Kami Gunakan",
+					Body: []string{
+						"Kami dapat memproses data akun, data perangkat WhatsApp, konfigurasi integrasi Meta, dan data operasional yang dibutuhkan agar layanan InstaBlast Pro berjalan sebagaimana mestinya.",
+						"Data hanya digunakan untuk autentikasi, pengiriman pesan, pengelolaan perangkat, analitik operasional dasar, dan penyelesaian masalah teknis.",
+					},
+				},
+				{
+					Title: "Integrasi Pihak Ketiga",
+					Body: []string{
+						"Jika Anda menghubungkan akun Meta atau WhatsApp Business, kami menerima data yang dibutuhkan untuk menyelesaikan onboarding, menyimpan identitas aset bisnis, dan memproses webhook resmi dari Meta.",
+						"Kami tidak menjual data pengguna kepada pihak ketiga.",
+					},
+				},
+				{
+					Title: "Kontrol dan Permintaan",
+					Body: []string{
+						"Anda dapat meminta pembaruan atau penghapusan data dengan menghubungi kontak resmi yang tersedia pada layanan ini.",
+						"Untuk permintaan penghapusan data terkait aplikasi Meta, silakan lihat instruksi pada halaman Data Deletion.",
+					},
+				},
+			},
+		}))
+	})
+	app.Get("/terms-of-service", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "text/html; charset=utf-8")
+		return c.SendString(legalPageHTML(legalPageContent{
+			Title:       "Terms of Service",
+			Heading:     "Syarat dan Ketentuan InstaBlast Pro",
+			Description: "Dengan menggunakan InstaBlast Pro, Anda setuju untuk menggunakan platform ini secara sah, bertanggung jawab, dan sesuai aturan Meta, WhatsApp, serta hukum yang berlaku.",
+			Sections: []legalSection{
+				{
+					Title: "Penggunaan yang Diizinkan",
+					Body: []string{
+						"Pengguna wajib menggunakan platform untuk komunikasi bisnis yang sah dan tidak melanggar kebijakan anti-spam, privasi, atau ketentuan resmi WhatsApp Business Platform.",
+						"Pengguna bertanggung jawab atas data, nomor telepon, dan akun pihak ketiga yang mereka hubungkan ke sistem.",
+					},
+				},
+				{
+					Title: "Kepatuhan Platform",
+					Body: []string{
+						"Fitur integrasi Meta dan WhatsApp Business tunduk pada kebijakan Meta yang dapat berubah sewaktu-waktu.",
+						"Kami berhak menolak atau menonaktifkan penggunaan yang berisiko, melanggar hukum, atau mengancam stabilitas layanan.",
+					},
+				},
+				{
+					Title: "Batasan Tanggung Jawab",
+					Body: []string{
+						"Kami berupaya menjaga layanan tetap tersedia, namun tidak menjamin layanan selalu bebas gangguan, pembatasan pihak ketiga, atau perubahan kebijakan platform eksternal.",
+					},
+				},
+			},
+		}))
+	})
+	app.Get("/data-deletion", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "text/html; charset=utf-8")
+		return c.SendString(legalPageHTML(legalPageContent{
+			Title:       "Data Deletion",
+			Heading:     "Instruksi Penghapusan Data InstaBlast Pro",
+			Description: "Jika Anda ingin meminta penghapusan data yang terkait dengan akun, integrasi Meta, atau penggunaan aplikasi ini, ikuti langkah berikut.",
+			Sections: []legalSection{
+				{
+					Title: "Cara Menghapus Koneksi Meta",
+					Body: []string{
+						"Buka pengaturan akun Facebook atau Meta Anda, lalu hapus aplikasi InstaBlast Pro dari daftar aplikasi yang terhubung jika Anda tidak ingin aplikasi ini lagi mengakses akun Anda.",
+						"Anda juga dapat memutus koneksi akun WhatsApp Business atau integrasi lain dari panel aplikasi jika fitur tersebut tersedia.",
+					},
+				},
+				{
+					Title: "Permintaan Penghapusan Data",
+					Body: []string{
+						"Untuk meminta penghapusan data dari sistem kami, kirimkan permintaan melalui email resmi operasional yang Anda gunakan pada layanan ini dengan menyebutkan identitas akun dan detail permintaan penghapusan.",
+						"Permintaan akan diverifikasi terlebih dahulu untuk memastikan keamanan akun dan mencegah penghapusan tidak sah.",
+					},
+				},
+				{
+					Title: "Waktu Pemrosesan",
+					Body: []string{
+						"Setelah identitas diverifikasi, kami akan memproses permintaan penghapusan data dalam waktu yang wajar sesuai kebutuhan operasional dan kewajiban hukum yang berlaku.",
+					},
+				},
+			},
+		}))
 	})
 
 	app.Get("/health", func(c *fiber.Ctx) error {
@@ -1695,6 +1786,151 @@ func consumeMetaSignupState(userID, state string) error {
 		return fmt.Errorf("state signup Meta tidak cocok dengan user login")
 	}
 	return nil
+}
+
+type legalSection struct {
+	Title string
+	Body  []string
+}
+
+type legalPageContent struct {
+	Title       string
+	Heading     string
+	Description string
+	Sections    []legalSection
+}
+
+func legalPageHTML(content legalPageContent) string {
+	var sections strings.Builder
+	for _, section := range content.Sections {
+		sections.WriteString("<section class=\"legal-section\">")
+		sections.WriteString("<h2>" + htmlEscape(section.Title) + "</h2>")
+		for _, paragraph := range section.Body {
+			sections.WriteString("<p>" + htmlEscape(paragraph) + "</p>")
+		}
+		sections.WriteString("</section>")
+	}
+
+	return fmt.Sprintf(`<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>%s</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3faf7;
+      --card: #ffffff;
+      --text: #14221c;
+      --muted: #5e7167;
+      --line: rgba(0, 168, 132, 0.16);
+      --accent: #00a884;
+      --accent-soft: rgba(0, 168, 132, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(37, 211, 102, 0.12), transparent 34%%),
+        linear-gradient(180deg, #f7fbfa 0%%, var(--bg) 100%%);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .wrap {
+      width: min(900px, calc(100%% - 32px));
+      margin: 40px auto;
+      background: rgba(255,255,255,0.95);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: 0 24px 80px rgba(17, 27, 33, 0.08);
+      overflow: hidden;
+    }
+    .hero {
+      padding: 28px 28px 18px;
+      background: linear-gradient(135deg, rgba(0,168,132,0.12), rgba(255,255,255,0.95));
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 16px 0 10px;
+      font-size: clamp(28px, 4vw, 40px);
+      line-height: 1.08;
+    }
+    .desc {
+      margin: 0;
+      max-width: 60ch;
+      color: var(--muted);
+      font-size: 16px;
+    }
+    .body {
+      padding: 10px 28px 28px;
+    }
+    .legal-section {
+      padding: 22px 0;
+      border-bottom: 1px solid rgba(20, 34, 28, 0.08);
+    }
+    .legal-section:last-child { border-bottom: none; }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 21px;
+    }
+    p {
+      margin: 0 0 10px;
+      color: var(--text);
+    }
+    .footer {
+      margin-top: 8px;
+      padding-top: 20px;
+      border-top: 1px dashed rgba(20, 34, 28, 0.14);
+      color: var(--muted);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="hero">
+      <div class="eyebrow">InstaBlast Pro</div>
+      <h1>%s</h1>
+      <p class="desc">%s</p>
+    </header>
+    <div class="body">
+      %s
+      <div class="footer">
+        Halaman ini disediakan untuk keperluan kepatuhan integrasi Meta, Facebook Login for Business, dan WhatsApp Business.
+      </div>
+    </div>
+  </main>
+</body>
+</html>`,
+		htmlEscape(content.Title),
+		htmlEscape(content.Heading),
+		htmlEscape(content.Description),
+		sections.String(),
+	)
+}
+
+func htmlEscape(s string) string {
+	replacer := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+		`"`, "&quot;",
+		"'", "&#39;",
+	)
+	return replacer.Replace(s)
 }
 
 var _ = whatsmeow.MediaImage

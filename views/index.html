@@ -575,25 +575,47 @@ Content-Type: application/json
     <div class="modal-card">
       <div class="modal-card-header">
         <div>
-          <div class="modal-card-title">Hubungkan WABA</div>
-          <div class="modal-card-subtitle">Pendaftaran WABA otomatis melalui portal resmi Meta.</div>
+          <div class="modal-card-title">Perhatian Sebelum Menghubungkan WABA</div>
+          <div class="modal-card-subtitle">Popup ini merangkum syarat penting sebelum user masuk ke portal resmi Meta.</div>
         </div>
         <button class="modal-close-btn" onclick="closeMetaSignupModal()">×</button>
       </div>
       <div class="modal-card-body">
         <div class="waba-modal-icon">WA</div>
-        <h3 class="waba-modal-heading">Pendaftaran WABA Otomatis</h3>
-        <p class="waba-modal-copy">Fitur ini membantu Anda menghubungkan nomor WhatsApp Business resmi ke proyek ini secara bertahap, tanpa mengganggu akun QR yang sudah aktif.</p>
-        <div class="waba-checklist">
-          <div class="waba-check-item">Gunakan akun Facebook Admin Meta Business.</div>
-          <div class="waba-check-item">Siapkan nomor telepon aktif yang ingin didaftarkan.</div>
-          <div class="waba-check-item">Popup resmi Facebook akan terbuka untuk otorisasi.</div>
+        <h3 class="waba-modal-heading">Checklist Penting Sebelum Lanjut</h3>
+        <p class="waba-modal-copy">Kami filter poin yang paling penting saja agar proses sambung Facebook dan WhatsApp Business lebih lancar, lebih cepat, dan tidak membingungkan user.</p>
+        <div class="waba-checklist waba-checklist-plain">
+          <div class="waba-check-item">Nama bisnis, brand, dan website yang akan dipakai di WhatsApp sudah konsisten.</div>
+          <div class="waba-check-item">Nomor telepon aktif, bisa menerima OTP, dan memang dipakai untuk kebutuhan bisnis.</div>
+          <div class="waba-check-item">Akun Facebook yang digunakan punya akses admin ke Meta Business yang benar.</div>
+          <div class="waba-check-item">Website, kebijakan privasi, dan syarat layanan sudah siap bila diminta Meta.</div>
+        </div>
+        <div class="waba-note-box waba-note-info">
+          <strong>Lanjut berarti setuju proses resmi Meta.</strong>
+          Portal Facebook akan meminta izin untuk menghubungkan aset WhatsApp Business ke platform ini.
+        </div>
+        <div class="waba-note-box waba-note-warn">
+          Data bisnis yang tidak sesuai dapat membuat verifikasi tertunda, nomor gagal tersambung, atau pengiriman pesan dibatasi.
+        </div>
+        <div class="waba-ack-list">
+          <label class="waba-ack-item">
+            <input type="checkbox" data-meta-check />
+            <span>Saya paham harus memakai akun Facebook admin Meta Business yang benar.</span>
+          </label>
+          <label class="waba-ack-item">
+            <input type="checkbox" data-meta-check />
+            <span>Saya sudah menyiapkan nomor WhatsApp bisnis aktif dan data bisnis yang konsisten.</span>
+          </label>
+          <label class="waba-ack-item">
+            <input type="checkbox" data-meta-check />
+            <span>Saya setuju melanjutkan ke portal resmi Meta untuk proses sambung WABA.</span>
+          </label>
         </div>
         <div id="metaModalStatus" class="status-text"></div>
       </div>
     <div class="modal-card-footer">
       <button class="btn btn-secondary" onclick="closeMetaSignupModal()">Kembali</button>
-      <button class="btn btn-primary" id="metaLaunchButton" onclick="launchMetaSignup()" disabled>Lanjutkan dengan Facebook</button>
+      <button class="btn btn-primary" id="metaLaunchButton" onclick="launchMetaSignup()" disabled>Lanjutkan ke Facebook</button>
     </div>
   </div>
   </div>

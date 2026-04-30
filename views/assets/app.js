@@ -29,6 +29,7 @@ let metaSignupCompleting = false;
 let metaSignupReadyAt = 0;
 let metaSDKReadyPromise = null;
 let metaSignupFallbackTimer = null;
+let metaSignupSDKReady = false;
 
 // ===== Toast =====
 function showToast(msg, type) {
@@ -1765,7 +1766,8 @@ async function saveAdminMetaConfig() {
 function openMetaSignupModal() {
   if ($('metaSignupModal')) $('metaSignupModal').classList.add('open');
   resetMetaSignupRuntime();
-  setMetaLaunchButtonDisabled(true);
+  resetMetaSignupChecklist();
+  syncMetaSignupLaunchState();
   if ($('metaModalStatus')) {
     $('metaModalStatus').textContent = 'Menyiapkan Meta Embedded Signup...';
     $('metaModalStatus').style.color = '#f59e0b';
@@ -1784,6 +1786,7 @@ function resetMetaSignupRuntime() {
   metaSignupState = '';
   metaSignupConfig = null;
   metaSignupReadyAt = 0;
+  metaSignupSDKReady = false;
   if (metaSignupFallbackTimer) {
     clearTimeout(metaSignupFallbackTimer);
     metaSignupFallbackTimer = null;
@@ -1792,6 +1795,23 @@ function resetMetaSignupRuntime() {
 
 function setMetaLaunchButtonDisabled(disabled) {
   if ($('metaLaunchButton')) $('metaLaunchButton').disabled = !!disabled;
+}
+
+function resetMetaSignupChecklist() {
+  document.querySelectorAll('#metaSignupModal input[data-meta-check]').forEach((el) => {
+    el.checked = false;
+  });
+}
+
+function isMetaSignupChecklistComplete() {
+  const checks = Array.from(document.querySelectorAll('#metaSignupModal input[data-meta-check]'));
+  return checks.length > 0 && checks.every((el) => el.checked);
+}
+
+function syncMetaSignupLaunchState() {
+  const canLaunch = metaSignupSDKReady && isMetaSignupChecklistComplete();
+  setMetaLaunchButtonDisabled(!canLaunch);
+  return canLaunch;
 }
 
 function isTrustedMetaOrigin(origin) {
@@ -1856,13 +1876,17 @@ async function prepareMetaSignup() {
       metaSignupState = data.state || '';
       await ensureMetaFacebookSDK(data.app_id, data.graph_version);
       metaSignupReadyAt = Date.now();
-      setMetaLaunchButtonDisabled(false);
+      metaSignupSDKReady = true;
+      syncMetaSignupLaunchState();
       if ($('metaModalStatus')) {
-        $('metaModalStatus').textContent = 'Meta siap. Lanjutkan dengan Facebook untuk mulai daftar.';
-        $('metaModalStatus').style.color = '#22c55e';
+        $('metaModalStatus').textContent = isMetaSignupChecklistComplete()
+          ? 'Meta siap. Lanjutkan ke Facebook untuk mulai daftar.'
+          : 'Meta siap. Centang checklist wajib di bawah sebelum lanjut.';
+        $('metaModalStatus').style.color = isMetaSignupChecklistComplete() ? '#22c55e' : '#f59e0b';
       }
     } catch (e) {
-      setMetaLaunchButtonDisabled(true);
+      metaSignupSDKReady = false;
+      syncMetaSignupLaunchState();
       if ($('metaModalStatus')) {
         $('metaModalStatus').textContent = e.message;
         $('metaModalStatus').style.color = '#ef4444';
@@ -1913,6 +1937,9 @@ async function launchMetaSignup() {
   try {
     if (!metaSignupConfig || !metaSignupState || (Date.now() - metaSignupReadyAt) > (10 * 60 * 1000)) {
       throw new Error('Sesi Meta belum siap. Tutup modal lalu buka lagi.');
+    }
+    if (!isMetaSignupChecklistComplete()) {
+      throw new Error('Centang dulu checklist penting sebelum lanjut ke Facebook.');
     }
     if (!window.FB || typeof window.FB.login !== 'function') {
       throw new Error('Facebook SDK belum siap');
@@ -2144,6 +2171,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   $('aiRajaOngkirEnabled')?.addEventListener('change', syncRajaOngkirFields);
+  document.querySelectorAll('#metaSignupModal input[data-meta-check]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const canLaunch = syncMetaSignupLaunchState();
+      if ($('metaModalStatus') && metaSignupSDKReady) {
+        $('metaModalStatus').textContent = canLaunch
+          ? 'Checklist lengkap. Anda bisa lanjut ke portal Facebook sekarang.'
+          : 'Centang semua checklist penting sebelum lanjut ke Facebook.';
+        $('metaModalStatus').style.color = canLaunch ? '#22c55e' : '#f59e0b';
+      }
+    });
+  });
 
   // Connect WebSocket
   connectWS();
