@@ -3,11 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>InstaBlast Pro</title>
   <meta name="description" content="InstaBlast Pro - WhatsApp Broadcast & AI Management" />
   <link rel="icon" href="/icon.ico" sizes="any" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/styles.css" />
+  <link rel="stylesheet" href="/assets/styles.css?v=20260502-0115" />
 </head>
 <body>
 
@@ -23,31 +26,12 @@
       </div>
       <span class="topbar-text">InstaBlast Pro <span class="version-badge">Gateway</span></span>
     </div>
-    <div class="topbar-center">
-      <div class="conn-badge" id="connBadge" onclick="checkConnection()">
-        <div class="conn-dot" id="connDot"></div>
-        <span id="connText">Menghubungkan...</span>
-      </div>
+    <div class="topbar-search">
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Z" stroke="currentColor" stroke-width="1.8"/><path d="m21 21-4.35-4.35" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <div class="search-placeholder">Cari sesuatu...</div>
     </div>
     <div class="topbar-right">
-      <div class="user-pill" id="userSessionBox">
-        <span class="account-switcher-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M12 12c2.76 0 5-2.46 5-5.5S14.76 1 12 1 7 3.46 7 6.5 9.24 12 12 12Z" stroke="currentColor" stroke-width="1.7"/>
-            <path d="M3 22c1.52-4.04 4.65-6 9-6s7.48 1.96 9 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-          </svg>
-        </span>
-        <div class="user-pill-content">
-          <strong id="currentUserLabel">Memuat user...</strong>
-        </div>
-      </div>
       <div class="account-switcher">
-        <span class="account-switcher-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none">
-            <path d="M12 12c2.76 0 5-2.46 5-5.5S14.76 1 12 1 7 3.46 7 6.5 9.24 12 12 12Z" stroke="currentColor" stroke-width="1.7"/>
-            <path d="M3 22c1.52-4.04 4.65-6 9-6s7.48 1.96 9 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-          </svg>
-        </span>
         <select id="accountSwitcher" onchange="handleAccountSwitch(this.value)">
           <option value="">Memuat akun...</option>
         </select>
@@ -63,6 +47,13 @@
 
   <div class="app-layout">
     <nav class="sidebar" id="sidebar">
+      <div class="sidebar-brand-head">
+        <div class="sidebar-brand-icon"><img src="/icon.ico" alt="InstaBlast Pro" /></div>
+        <div>
+          <div class="sidebar-brand-title">InstaBlast Pro</div>
+          <div class="sidebar-brand-sub">FASTBLAST</div>
+        </div>
+      </div>
       <div class="sidebar-nav">
         <button class="nav-item active" data-tab="home" onclick="switchTab('home')">
           <span class="nav-icon" aria-hidden="true">
@@ -74,35 +65,41 @@
           <span class="nav-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><path d="M12 12c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5Z" stroke="currentColor" stroke-width="1.7"/><path d="M4 21c1.3-3.6 4.1-5.4 8-5.4s6.7 1.8 8 5.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M18.5 8.5h4M20.5 6.5v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
           </span>
-          <span class="nav-label">Akun WA</span>
+          <span class="nav-label">Device WhatsApp</span>
+        </button>
+        <button class="nav-item" data-tab="contacts" onclick="switchTab('contacts')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" stroke-width="1.7"/><path d="M2.5 21c.9-4 3-6 6.5-6s5.6 2 6.5 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M17 7h4M19 5v4M17 15h4M17 19h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </span>
+          <span class="nav-label">Kontak</span>
+        </button>
+        <button class="nav-item" data-tab="file-manager" onclick="switchTab('file-manager')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M3.5 6.5A2.5 2.5 0 0 1 6 4h4l2 2h6A2.5 2.5 0 0 1 20.5 8.5v8A2.5 2.5 0 0 1 18 19H6a2.5 2.5 0 0 1-2.5-2.5v-10Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 15l2.2-2.2 1.8 1.8 2.7-3.1L17 15H8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">Media Center</span>
         </button>
         <button class="nav-item" data-tab="broadcast" onclick="switchTab('broadcast')">
           <span class="nav-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><path d="M5 19c4.6-2.1 9.3-4.2 14-6.3L5 6l2.4 5.1L19 12.7 7.4 14.3 5 19Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
           </span>
-          <span class="nav-label">Broadcast</span>
+          <span class="nav-label">Campaign Blast</span>
         </button>
-        <button class="nav-item" data-tab="personalisasi" onclick="switchTab('personalisasi')">
+        <button class="nav-item" data-tab="reports" onclick="switchTab('reports')">
           <span class="nav-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none"><path d="m12 3 1.8 4.7L18.5 9l-4.7 1.8L12 15.5l-1.8-4.7L5.5 9l4.7-1.3L12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m18.5 15 .9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9.9-2.4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            <svg viewBox="0 0 24 24" fill="none"><path d="m14.7 6.3 3 3-8.4 8.4H6.3v-3l8.4-8.4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m13.3 7.7 3 3" stroke="currentColor" stroke-width="1.7"/><path d="M20 4 18 2l-2.3 2.3 3 3L21 5l-1-1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
           </span>
-          <span class="nav-label">Personalisasi</span>
-        </button>
-        <button class="nav-item" data-tab="history" onclick="switchTab('history')">
-          <span class="nav-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M3.5 12a8.5 8.5 0 1 0 2.2-5.7M3 4v4h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
-          <span class="nav-label">Riwayat</span>
+          <span class="nav-label">Laporan</span>
         </button>
         <button class="nav-item" data-tab="tools" onclick="switchTab('tools')">
           <span class="nav-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none"><path d="m14.7 6.3 3 3-8.4 8.4H6.3v-3l8.4-8.4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m13.3 7.7 3 3" stroke="currentColor" stroke-width="1.7"/><path d="M20 4 18 2l-2.3 2.3 3 3L21 5l-1-1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            <svg viewBox="0 0 24 24" fill="none"><path d="M14.7 6.3a3 3 0 0 0 4 4l2.6 2.6-2.8 2.8-2.6-2.6a3 3 0 1 0-1.4 1.4l2.6 2.6-2.8 2.8-2.6-2.6a3 3 0 1 0-1.4 1.4l2.6 2.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </span>
           <span class="nav-label">Tools</span>
         </button>
         <button class="nav-item" data-tab="ai" onclick="switchTab('ai')">
           <span class="nav-icon nav-icon-text">AI</span>
-          <span class="nav-label">InstaBlast AI</span>
+          <span class="nav-label">Auto Reply</span>
         </button>
         <button class="nav-item" data-tab="waba" onclick="switchTab('waba')">
           <span class="nav-icon" aria-hidden="true">
@@ -114,13 +111,7 @@
           <span class="nav-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><path d="M7 4.5h8l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 19V6A1.5 1.5 0 0 1 7.5 4.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M15 4.5V9h4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 12h6M9 15h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
           </span>
-          <span class="nav-label">API Docs</span>
-        </button>
-        <button class="nav-item" data-tab="settings" onclick="switchTab('settings')">
-          <span class="nav-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 1 0 12 8.5Z" stroke="currentColor" stroke-width="1.7"/><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 1 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 1 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 1 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6H20a2 2 0 1 1 0 4h-.2a1 1 0 0 0-.9.6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
-          </span>
-          <span class="nav-label">Setting</span>
+          <span class="nav-label">API & Integrasi</span>
         </button>
         <button class="nav-item" id="adminNavItem" data-tab="admin" onclick="switchTab('admin')" style="display:none;">
           <span class="nav-icon" aria-hidden="true">
@@ -128,10 +119,6 @@
           </span>
           <span class="nav-label">Admin</span>
         </button>
-      </div>
-      <div class="sidebar-footer">
-        <div class="sidebar-version">Versi 1.0.0</div>
-        <div class="sidebar-brand">© 2026 AzkazamDigital</div>
       </div>
     </nav>
 
@@ -231,7 +218,7 @@
       </div>
 
       <div class="tab-pane" id="tab-accounts">
-        <div class="page-header"><h1 class="page-title">Akun WhatsApp</h1><p class="page-subtitle">Kelola banyak sesi WhatsApp. Broadcast, tools, QR, dan status mengikuti akun aktif.</p></div>
+        <div class="page-header"><h1 class="page-title">Device WhatsApp</h1><p class="page-subtitle">Kelola semua device WhatsApp yang terhubung untuk melakukan blast.</p></div>
         <div class="two-column">
           <div class="column"><div class="card"><div class="card-title"><span>WA</span> Tambah Akun</div><div class="form-group"><label>Nama akun</label><input type="text" id="newAccountName" placeholder="Contoh: CS Utama" /></div><div class="btn-row"><button class="btn btn-primary" onclick="createAccount()">Tambah akun</button><button class="btn btn-secondary" onclick="openQRForAccount()">Scan QR akun aktif</button></div><div class="hint">Jika nama dikosongkan, nama akun akan dibuat otomatis.</div></div></div>
           <div class="column"><div class="card"><div class="card-title"><span>Info</span> Ringkasan Akun Aktif</div><div class="account-summary-panel"><div class="account-summary-label">Nama</div><div class="account-summary-value" id="activeAccountName">-</div><div class="account-summary-label">Status</div><div class="account-summary-value" id="activeAccountStatus">-</div><div class="account-summary-label">Nomor</div><div class="account-summary-value" id="activeAccountPhone">-</div></div></div></div>
@@ -239,30 +226,325 @@
         <div class="card"><div class="card-title"><span>List</span> Daftar Akun WA</div><div id="waAccountCards" class="account-cards"><div class="empty-state-inline">Memuat akun...</div></div></div>
       </div>
 
-      <div class="tab-pane" id="tab-broadcast">
-        <div class="page-header"><h1 class="page-title">Broadcast</h1><p class="page-subtitle">Kirim sekarang atau jadwalkan broadcast 24 jam dari akun WhatsApp yang dipilih</p></div>
-        <div class="two-column">
-          <div class="column"><div class="card"><div class="card-title"><span>Akun</span> Akun & Nomor Tujuan</div><div class="form-group"><label>Akun WhatsApp untuk broadcast</label><select id="broadcastAccountSelect"><option value="">Memuat akun...</option></select></div><textarea id="numbers" placeholder="628123456789&#10;628987654321&#10;(pisah baris/koma)" rows="8"></textarea><div class="btn-row"><button class="btn btn-secondary btn-sm" onclick="importCSV()">Import CSV</button><button class="btn btn-secondary btn-sm" onclick="clearField('numbers')">Bersihkan</button></div><div class="section-group"><label class="section-label">Grup Kontak</label><select id="groupSelect"><option value="">Pilih grup...</option></select><input type="text" id="groupName" placeholder="Nama grup baru" /><div class="btn-row"><button class="btn btn-primary btn-sm" onclick="saveGroup()">Simpan</button><button class="btn btn-secondary btn-sm" onclick="loadGroup()">Muat</button><button class="btn btn-danger btn-sm" onclick="deleteGroup()">Hapus</button></div></div></div></div>
-          <div class="column"><div class="card"><div class="card-title"><span>Pesan</span> Pesan</div><textarea id="message" placeholder="Halo {kak|gan}, ini pesan promo...&#10;Gunakan spintax: {Halo|Hi} {kak|gan}" rows="8"></textarea><div class="section-group"><label class="section-label">Template Pesan</label><select id="templateSelect"><option value="">Pilih template...</option></select><input type="text" id="templateName" placeholder="Nama template" /><div class="btn-row"><button class="btn btn-primary btn-sm" onclick="saveTemplate()">Simpan</button><button class="btn btn-danger btn-sm" onclick="deleteTemplate()">Hapus</button></div></div><label class="toggle"><input type="checkbox" id="useSpintax" checked /> Gunakan Spintax</label><label class="toggle"><input type="checkbox" id="attachImage" /> Sertakan Gambar</label><div id="imageRow" style="display:none;"><input type="file" id="imageInput" accept="image/*" multiple style="display:none" onchange="handleImageUpload(event)" /><div class="img-upload-btn" onclick="document.getElementById('imageInput').click()"><span class="upload-icon">IMG</span><span>Pilih Gambar</span></div><div id="imagePreview" class="image-preview-text"></div></div></div></div>
+      <div class="tab-pane" id="tab-contacts">
+        <div class="page-header"><h1 class="page-title">Kontak</h1><p class="page-subtitle">Simpan kontak berdasarkan grup. Broadcast wajib memilih data dari sini.</p></div>
+        <div class="btn-row contacts-subtabs">
+          <button class="btn btn-primary btn-sm" id="contactsViewGroupsBtn" type="button" onclick="switchContactsView('groups')">Grup Kontak</button>
+          <button class="btn btn-secondary btn-sm" id="contactsViewUnsubscribeBtn" type="button" onclick="switchContactsView('unsubscribe')">Pelanggan Unsubscribe</button>
         </div>
-        <div class="card"><div class="card-title"><span>Jadwal</span> Jadwalkan Broadcast</div><div class="form-row"><div class="form-group"><label>Nama jadwal</label><input type="text" id="scheduleName" placeholder="Contoh: Promo Pagi" /></div><div class="form-group"><label>Waktu kirim</label><input type="datetime-local" id="scheduleRunAt" /></div></div><div class="hint">Jadwal berjalan di server selama aplikasi backend hidup di Coolify, meski browser tidak dibuka.</div><div class="btn-row"><button class="btn btn-secondary" onclick="scheduleBroadcast()">Simpan Jadwal</button></div><div id="scheduleStatus" class="status-text"></div></div>
-        <div class="blast-controls"><div class="progress-wrap" id="progressWrap"><div class="progress-bar-container"><div class="progress-bar-fill" id="progressBar"></div></div><div class="progress-label" id="progressLabel">0/0</div></div><div class="blast-actions"><button class="btn btn-primary btn-lg" id="btnStart" onclick="startBroadcast()"><span class="btn-text">Kirim Broadcast</span></button><button class="btn btn-warning" id="btnPause" onclick="pauseBroadcast()">Pause</button><button class="btn btn-danger" id="btnStop" onclick="stopBroadcast()">Stop</button></div></div>
-        <div class="card"><div class="card-title"><span>List</span> Jadwal Broadcast</div><div style="overflow-x:auto; margin-top:8px;"><table class="data-table"><thead><tr><th>Nama</th><th>Akun</th><th>Waktu</th><th>Status</th><th>Total</th><th>Hasil</th><th>Aksi</th></tr></thead><tbody id="scheduleTableBody"><tr><td colspan="7" class="empty-cell">Belum ada jadwal broadcast</td></tr></tbody></table></div></div>
+        <div id="contactsGroupsView">
+          <div class="two-column">
+            <div class="column">
+              <div class="card">
+                <div class="card-title"><span>Import</span> Grup Kontak</div>
+                <div class="form-group">
+                  <label>Nama grup kontak</label>
+                  <input type="text" id="contactListName" placeholder="Contoh: Customer Makassar" />
+                </div>
+                <input type="file" id="contactCSVInput" accept=".csv,.txt" style="display:none" onchange="handleContactCSVImport(event)" />
+                <div class="btn-row">
+                  <button class="btn btn-secondary" type="button" onclick="document.getElementById('contactCSVInput').click()">Import CSV/TXT</button>
+                  <button class="btn btn-primary" type="button" onclick="saveContactList()">Simpan Grup</button>
+                  <button class="btn btn-secondary" type="button" onclick="clearContactImport()">Bersihkan</button>
+                </div>
+                <div class="form-group" style="margin-top:14px;">
+                  <label>Paste nomor HP langsung</label>
+                  <textarea id="contactManualNumbers" rows="8" placeholder="Contoh:\n628123456789\n628987654321\n\nBisa juga paste dari Excel/WhatsApp, satu nomor per baris." oninput="handleManualContactInput()"></textarea>
+                </div>
+                <div class="hint">Kolom nomor bisa bernama <strong>nomor</strong>, <strong>phone</strong>, <strong>wa</strong>, <strong>whatsapp</strong>, atau <strong>no</strong>. Kolom lain akan disimpan sebagai variabel.</div>
+                <div id="contactImportStatus" class="status-text"></div>
+              </div>
+            </div>
+            <div class="column">
+              <div class="card">
+                <div class="card-title"><span>Data</span> Daftar Grup Kontak</div>
+                <div id="contactListCards" class="contact-list-grid"><div class="empty-state-inline">Memuat grup kontak...</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title"><span>Tabel</span> Preview Variabel Kontak</div>
+            <div id="contactTablePreview" class="contact-table-wrap"><div class="empty-state-inline">Import CSV atau paste nomor untuk melihat preview kontak.</div></div>
+          </div>
+        </div>
+        <div id="contactsUnsubscribeView" hidden>
+          <div class="two-column">
+            <div class="column">
+              <div class="card">
+                <div class="card-title"><span>STOP</span> Pengaturan Unsubscribe</div>
+                <label class="toggle"><input type="checkbox" id="unsubscribeEnabled" onchange="renderBroadcastPreview()" /> Aktifkan fitur unsubscribe</label>
+                <div class="form-group">
+                  <label>Kata kunci berhenti</label>
+                  <input type="text" id="unsubscribeKeyword" placeholder="STOP" maxlength="24" oninput="renderBroadcastPreview()" />
+                </div>
+                <div class="form-group">
+                  <label>Instruksi yang ditambahkan ke pesan</label>
+                  <textarea id="unsubscribeInstruction" rows="4" placeholder="Ketik STOP untuk berhenti menerima pesan dari kami." oninput="renderBroadcastPreview()"></textarea>
+                </div>
+                <div class="form-group">
+                  <label>Balasan otomatis setelah pelanggan mengetik STOP</label>
+                  <textarea id="unsubscribeAutoReply" rows="4" placeholder="Baik, nomor Anda sudah kami masukkan ke daftar berhenti berlangganan. Kami tidak akan mengirimkan pesan broadcast lagi."></textarea>
+                </div>
+                <div class="btn-row">
+                  <button class="btn btn-primary" type="button" onclick="saveUnsubscribeSettings()">Simpan Pengaturan</button>
+                </div>
+                <div class="hint">Jika aktif, pelanggan yang membalas kata kunci ini akan masuk daftar unsubscribe dan otomatis dilewati saat broadcast berikutnya.</div>
+                <div id="unsubscribeSettingsStatus" class="status-text"></div>
+              </div>
+            </div>
+            <div class="column">
+              <div class="card">
+                <div class="card-title"><span>List</span> Daftar Pelanggan Unsubscribe</div>
+                <div id="unsubscribeListWrap" class="contact-table-wrap"><div class="empty-state-inline">Belum ada pelanggan unsubscribe.</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-file-manager">
+        <div class="page-header"><h1 class="page-title">Media Center</h1><p class="page-subtitle">Simpan gambar, video, dan dokumen agar bisa dipilih saat membuat campaign blast.</p></div>
+        <div class="card">
+          <div class="card-title"><span>Upload</span> Tambah Media</div>
+          <input type="file" id="mediaUploadInput" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" style="display:none" onchange="uploadManagedMedia(event)" />
+          <div class="btn-row">
+            <button class="btn btn-primary" type="button" onclick="document.getElementById('mediaUploadInput').click()">Upload File</button>
+            <button class="btn btn-secondary" type="button" onclick="loadMediaFiles()">Muat Ulang</button>
+          </div>
+          <div id="mediaStatus" class="status-text"></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>Library</span> Media Tersimpan</div>
+          <div id="mediaFileList" class="media-grid"><div class="empty-state-inline">Memuat media...</div></div>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-broadcast">
+        <div class="broadcast-hub">
+            <div id="broadcastComposerView" class="broadcast-workspace active">
+              <div class="blast-composer-head">
+                <div>
+                  <div class="card-title"><span>Buat</span> Buat Blast Baru</div>
+                  <div class="hint" style="margin:8px 0 0;">Tampilan disusun seperti dashboard blast modern: preview kiri, form kerja kanan.</div>
+                </div>
+              </div>
+
+              <div class="blast-composer-layout">
+                <div class="blast-preview-column">
+                  <div class="card blast-preview-card">
+                    <div class="blast-preview-label">Live Preview</div>
+                    <div class="blast-preview-subtitle">Tampilan pesan yang akan diterima kontak WhatsApp.</div>
+
+                    <div class="blast-phone-frame">
+                      <div class="blast-phone-notch" aria-hidden="true"></div>
+                      <div class="blast-phone-screen">
+                        <div class="blast-phone-header">
+                          <div class="blast-phone-head-left">
+                            <div class="blast-phone-back" aria-hidden="true">←</div>
+                            <div class="blast-phone-avatar" id="broadcastPreviewAvatar">CU</div>
+                            <div>
+                              <div class="blast-phone-name" id="broadcastPreviewAccount">Nama Customer</div>
+                              <div class="blast-phone-status" id="broadcastPreviewAudience">online</div>
+                            </div>
+                          </div>
+                          <div class="blast-phone-actions" aria-hidden="true">
+                            <span>◻</span>
+                            <span>☎</span>
+                            <span>⋮</span>
+                          </div>
+                        </div>
+                        <div class="blast-phone-chat">
+                          <div class="blast-phone-day">HARI INI</div>
+                          <div class="blast-phone-bubble">
+                            <div id="broadcastPreviewMessage">Tulis isi pesan untuk melihat preview di sini.</div>
+                            <div id="broadcastPreviewImages" class="blast-phone-images"></div>
+                            <div id="broadcastPreviewUnsubscribe" class="blast-preview-unsubscribe-note" hidden></div>
+                            <div class="blast-phone-bubble-meta">
+                              <span id="broadcastPreviewTime">21.15</span>
+                              <span class="blast-phone-checks">✓✓</span>
+                            </div>
+                          </div>
+                          <div id="broadcastPreviewSyntax" class="blast-preview-syntax" hidden></div>
+                        </div>
+                        <div class="blast-phone-inputbar">
+                          <span class="blast-phone-input-icon" aria-hidden="true">☺</span>
+                          <div class="blast-phone-inputfake">Ketik pesan</div>
+                          <span class="blast-phone-input-icon" aria-hidden="true">📎</span>
+                          <span class="blast-phone-input-icon" aria-hidden="true">📷</span>
+                          <div class="blast-phone-mic" aria-hidden="true">🎤</div>
+                        </div>
+                        <div class="blast-phone-homebar" aria-hidden="true"></div>
+                      </div>
+                    </div>
+
+                    <div class="blast-preview-progress" id="progressWrap">
+                      <div class="blast-preview-progress-head">
+                        <div>
+                          <div class="blast-preview-progress-kicker">Proses Pengiriman</div>
+                          <strong id="progressCurrentText">Belum ada proses berjalan.</strong>
+                        </div>
+                        <span class="blast-preview-progress-total" id="progressLabel">0/0</span>
+                      </div>
+                      <div class="progress-bar-container"><div class="progress-bar-fill" id="progressBar"></div></div>
+                      <div class="blast-preview-progress-meta">
+                        <span id="progressSentCount">0 terkirim</span>
+                        <span id="progressFailedCount">0 gagal</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="blast-form-column">
+                  <div class="card blast-form-card">
+                    <div class="form-group">
+                      <label>Sender (akun WhatsApp untuk blast)</label>
+                      <select id="broadcastAccountSelect" onchange="renderBroadcastPreview()"><option value="">Memuat akun...</option></select>
+                    </div>
+
+                    <div class="form-group">
+                      <label>Pilih Grup Kontak dari menu Kontak</label>
+                      <select id="groupSelect"><option value="">Pilih grup...</option></select>
+                      <div class="hint">Broadcast hanya memakai kontak yang sudah disimpan di menu Kontak.</div>
+                    </div>
+
+                    <div class="form-group">
+                      <label>Judul Blast (untuk internal)</label>
+                      <input type="text" id="scheduleName" placeholder="Contoh: Promo Ramadhan 2026" oninput="renderBroadcastPreview()" />
+                    </div>
+
+                    <div class="form-group">
+                      <label>Isi Pesan</label>
+                      <div class="section-group" style="margin-bottom:10px; padding:12px 14px;">
+                        <label class="section-label">Variabel dari Grup Kontak</label>
+                        <div class="form-row" style="align-items:end;">
+                          <div class="form-group" style="margin:0; flex:1;">
+                            <label>Pilih variabel</label>
+                            <select id="broadcastVariableSelect">
+                              <option value="">Pilih variabel kontak...</option>
+                            </select>
+                          </div>
+                          <div class="btn-row" style="margin:0;">
+                            <button class="btn btn-secondary btn-sm" type="button" onclick="insertSelectedBroadcastVariable()">Masukkan Variabel</button>
+                          </div>
+                        </div>
+                        <div id="broadcastVariableChips" class="btn-row" style="margin-top:10px;"></div>
+                        <div id="broadcastVariableHint" class="hint" style="margin-top:8px;">Pilih grup kontak terlebih dahulu untuk menampilkan variabel yang tersedia.</div>
+                      </div>
+                      <textarea id="message" placeholder="Halo {kak|gan}, ini pesan promo...&#10;Gunakan spintax: {Halo|Hi} {kak|gan}" rows="8" oninput="renderBroadcastPreview()"></textarea>
+                      <div class="broadcast-ai-tools">
+                        <button class="btn btn-secondary btn-sm" type="button" id="broadcastAnalyzeBtn" onclick="analyzeBroadcastMessage()">Analisa Pesan</button>
+                        <button class="btn btn-primary btn-sm" type="button" id="broadcastSpintaxBtn" onclick="generateBroadcastSpintax()">Spintax AI Berat</button>
+                      </div>
+                      <div id="broadcastAIStatus" class="status-text"></div>
+                      <div id="broadcastAIResult" class="broadcast-ai-result" hidden></div>
+                    </div>
+
+                    <div class="section-group">
+                      <label class="section-label">Template Pesan</label>
+                      <select id="templateSelect"><option value="">Pilih template...</option></select>
+                      <input type="text" id="templateName" placeholder="Nama template" />
+                      <div class="btn-row">
+                        <button class="btn btn-primary btn-sm" type="button" onclick="saveTemplate()">Simpan Template</button>
+                        <button class="btn btn-danger btn-sm" type="button" onclick="deleteTemplate()">Hapus Template</button>
+                      </div>
+                    </div>
+
+                    <details class="blast-advanced-box">
+                      <summary>Nomor dari grup kontak terpilih</summary>
+                      <div class="blast-advanced-body">
+                        <textarea id="numbers" placeholder="Pilih grup kontak untuk mengisi nomor tujuan otomatis" rows="7" readonly oninput="renderBroadcastPreview()"></textarea>
+                        <div class="btn-row">
+                          <button class="btn btn-secondary btn-sm" type="button" onclick="switchTab('contacts')">Kelola Kontak</button>
+                        </div>
+                      </div>
+                    </details>
+
+                    <div class="blast-inline-toggles">
+                      <label class="toggle"><input type="checkbox" id="useSpintax" checked /> Gunakan Spintax</label>
+                      <label class="toggle"><input type="checkbox" id="attachImage" /> Sertakan Media</label>
+                    </div>
+
+                    <div id="imageRow" style="display:none;">
+                      <div class="btn-row">
+                        <button class="btn btn-secondary btn-sm" type="button" onclick="loadMediaFiles()">Muat File Manager</button>
+                        <button class="btn btn-secondary btn-sm" type="button" onclick="switchTab('file-manager')">Buka File Manager</button>
+                      </div>
+                      <div id="broadcastMediaPicker" class="media-picker"></div>
+                      <div id="imagePreview" class="image-preview-text"></div>
+                    </div>
+
+                    <div class="blast-delay-grid">
+                      <div class="section-group">
+                        <label class="section-label">Delay Dasar</label>
+                        <div class="form-group">
+                          <label>Delay per pesan (detik)</label>
+                          <input type="number" id="broadcastDelay" value="3" min="1" />
+                        </div>
+                        <label class="toggle"><input type="checkbox" id="broadcastRandomDelay" /> Acak delay</label>
+                        <div id="broadcastRandomDelayRow" style="display:none;">
+                          <div class="form-row">
+                            <div class="form-group"><label>Min</label><input type="number" id="broadcastDelayMin" value="2" min="1" /></div>
+                            <div class="form-group"><label>Max</label><input type="number" id="broadcastDelayMax" value="5" min="1" /></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="section-group">
+                        <label class="section-label">Break Anti Spam</label>
+                        <label class="toggle"><input type="checkbox" id="broadcastBreakEnabled" checked /> Aktifkan break otomatis</label>
+                        <div class="form-row">
+                          <div class="form-group"><label>Setelah berapa pesan</label><input type="number" id="broadcastBurstEvery" value="25" min="0" /></div>
+                          <div class="form-group"><label>Durasi break (detik)</label><input type="number" id="broadcastBurstPauseSec" value="30" min="0" /></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="section-group">
+                      <label class="toggle"><input type="checkbox" id="broadcastScheduleToggle" /> Jadwalkan pengiriman</label>
+                      <div id="broadcastScheduleBox" style="display:none; margin-top:10px;">
+                        <div class="form-group">
+                          <label>Waktu kirim</label>
+                          <input type="datetime-local" id="scheduleRunAt" />
+                        </div>
+                        <div class="hint">Jika dicentang, tombol submit akan menyimpan blast sebagai jadwal server.</div>
+                      </div>
+                      <div id="scheduleStatus" class="status-text"></div>
+                    </div>
+
+                    <div class="blast-controls blast-controls-inline">
+                      <div class="blast-actions">
+                        <button class="btn btn-primary btn-lg" id="btnStart" type="button" onclick="submitBroadcastComposer()"><span class="btn-text">Submit Blast</span></button>
+                        <button class="btn btn-warning" id="btnPause" type="button" onclick="pauseBroadcast()">Pause</button>
+                        <button class="btn btn-danger" id="btnStop" type="button" onclick="stopBroadcast()">Stop</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+        </div>
       </div>
 
       <div class="tab-pane" id="tab-personalisasi">
-        <div class="page-header"><h1 class="page-title">Broadcast Personalisasi</h1><p class="page-subtitle">Kirim pesan berbeda ke setiap kontak berdasarkan data CSV</p></div>
+        <div class="page-header"><h1 class="page-title">Template Pesan</h1><p class="page-subtitle">Kelola format pesan personalisasi dan template pengiriman.</p></div>
         <div class="two-column">
           <div class="column"><div class="card card-blue"><div class="card-title"><span>CSV</span> Import Data CSV</div><div class="form-group"><label>Akun WhatsApp untuk personalisasi</label><select id="personalAccountSelect"><option value="">Memuat akun...</option></select></div><div class="hint">File CSV harus memiliki kolom: <code>nomor</code>, <code>nama</code>, dan kolom kustom lainnya.<br><strong>Contoh:</strong> nomor,nama,jenis_kendaraan,plat_nomor,alamat</div><div class="btn-row"><input type="file" id="csvFileInput" accept=".csv" style="display:none" onchange="handleCSVImport(event)" /><button class="btn btn-primary btn-sm" onclick="document.getElementById('csvFileInput').click()">Import CSV</button><button class="btn btn-secondary btn-sm" onclick="downloadSampleCSV()">Download Sample</button></div><div id="csvImportStatus" class="status-text"></div></div><div class="card"><div class="card-title"><span>Nomor</span> Nomor Tujuan (dari CSV)</div><textarea id="numbersPersonal" placeholder="Nomor akan otomatis terisi setelah import CSV" rows="8" readonly></textarea><div class="status-text">Nomor otomatis terisi dari kolom 'nomor' di file CSV</div></div></div>
-          <div class="column"><div class="card"><div class="card-title"><span>Pesan</span> Template Pesan</div><textarea id="messagePersonal" placeholder="Halo {nama}, kendaraan {jenis_kendaraan} plat {plat_nomor} Anda sudah siap di {alamat}." rows="8"></textarea><div class="section-group" style="border-color:rgba(59,130,246,0.2); background:rgba(59,130,246,0.04);"><label class="section-label" style="color:#3b82f6;">Placeholder Tersedia</label><div id="personalPlaceholders" style="font-size:12px; color:var(--text-secondary); line-height:1.6;"><code>{nama}</code> - Nama kontak<br>Kolom kustom lainnya akan muncul setelah CSV diimport.</div></div><div class="section-group"><label class="section-label">Template Personalisasi</label><select id="templatePersonalSelect"><option value="">Pilih template...</option></select><input type="text" id="templatePersonalName" placeholder="Nama template" /><div class="btn-row"><button class="btn btn-primary btn-sm" onclick="saveTemplatePersonal()">Simpan</button><button class="btn btn-danger btn-sm" onclick="deleteTemplatePersonal()">Hapus</button></div></div><label class="toggle"><input type="checkbox" id="useSpintaxPersonal" /> Gunakan Spintax</label><label class="toggle"><input type="checkbox" id="attachImagePersonal" /> Sertakan Gambar</label><div id="imageRowPersonal" style="display:none;"><input type="file" id="imageInputPersonal" accept="image/*" multiple style="display:none" onchange="handleImageUploadPersonal(event)" /><div class="img-upload-btn" onclick="document.getElementById('imageInputPersonal').click()"><span class="upload-icon">IMG</span><span>Pilih Gambar</span></div><div id="imagePreviewPersonal" class="image-preview-text"></div></div></div></div>
+          <div class="column"><div class="card"><div class="card-title"><span>Pesan</span> Template Pesan</div><textarea id="messagePersonal" placeholder="Halo {nama}, kendaraan {jenis_kendaraan} plat {plat_nomor} Anda sudah siap di {alamat}." rows="8"></textarea><div class="section-group" style="border-color:rgba(59,130,246,0.2); background:rgba(59,130,246,0.04);"><label class="section-label" style="color:#3b82f6;">Placeholder Tersedia</label><div id="personalPlaceholders" style="font-size:12px; color:var(--text-secondary); line-height:1.6;"><code>{nama}</code> - Nama kontak<br>Kolom kustom lainnya akan muncul setelah CSV diimport.</div></div><div class="section-group"><label class="section-label">Template Personalisasi</label><select id="templatePersonalSelect"><option value="">Pilih template...</option></select><input type="text" id="templatePersonalName" placeholder="Nama template" /><div class="btn-row"><button class="btn btn-primary btn-sm" onclick="saveTemplatePersonal()">Simpan</button><button class="btn btn-danger btn-sm" onclick="deleteTemplatePersonal()">Hapus</button></div></div><label class="toggle"><input type="checkbox" id="useSpintaxPersonal" /> Gunakan Spintax</label><label class="toggle"><input type="checkbox" id="attachImagePersonal" /> Sertakan Media</label><div id="imageRowPersonal" style="display:none;"><input type="file" id="imageInputPersonal" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" multiple style="display:none" onchange="handleImageUploadPersonal(event)" /><div class="img-upload-btn" onclick="document.getElementById('imageInputPersonal').click()"><span class="upload-icon">FILE</span><span>Pilih Media</span></div><div id="imagePreviewPersonal" class="image-preview-text"></div></div></div></div>
         </div>
         <div class="card"><div class="card-title"><span>Jadwal</span> Jadwalkan Personalisasi</div><div class="form-row"><div class="form-group"><label>Nama jadwal</label><input type="text" id="schedulePersonalName" placeholder="Contoh: Reminder Service" /></div><div class="form-group"><label>Waktu kirim</label><input type="datetime-local" id="schedulePersonalRunAt" /></div></div><div class="hint">Dalam satu user, semua job broadcast dan personalisasi akan antre bergantian. User lain tetap bisa berjalan sendiri.</div><div class="btn-row"><button class="btn btn-secondary" onclick="schedulePersonalBroadcast()">Simpan Jadwal</button></div><div id="schedulePersonalStatus" class="status-text"></div></div>
-        <div class="card"><div class="card-title"><span>List</span> Jadwal Personalisasi</div><div style="overflow-x:auto; margin-top:8px;"><table class="data-table"><thead><tr><th>Nama</th><th>Akun</th><th>Waktu</th><th>Status</th><th>Total</th><th>Hasil</th><th>Aksi</th></tr></thead><tbody id="schedulePersonalTableBody"><tr><td colspan="7" class="empty-cell">Belum ada jadwal personalisasi</td></tr></tbody></table></div></div>
+        <div class="card"><div class="card-title"><span>Monitor</span> Pantau di Riwayat</div><div class="hint" style="margin-top:8px;">Semua personalisasi yang sedang berjalan maupun yang terjadwal sekarang dipusatkan di menu <strong>Riwayat Broadcast</strong> agar monitoring ada di satu tempat.</div><div class="btn-row" style="margin-top:14px;"><button class="btn btn-secondary" onclick="switchTab('history')">Buka Riwayat</button></div></div>
         <div class="blast-controls"><div class="progress-wrap" id="progressWrapPersonal"><div class="progress-bar-container"><div class="progress-bar-fill" id="progressBarPersonal"></div></div><div class="progress-label" id="progressLabelPersonal">0/0</div></div><div class="blast-actions"><button class="btn btn-primary btn-lg" id="btnStartPersonal" onclick="startBroadcastPersonal()"><span class="btn-text">Kirim Personalisasi</span></button><button class="btn btn-warning" onclick="pauseBroadcast()">Pause</button><button class="btn btn-danger" onclick="stopBroadcast()">Stop</button></div></div>
       </div>
 
       <div class="tab-pane" id="tab-tools">
         <div class="page-header"><h1 class="page-title">Tools</h1><p class="page-subtitle">Diagnostik dan tools WhatsApp</p></div>
+        <div class="card" style="margin-bottom:18px;">
+          <div class="card-title"><span>Akun</span> Pilih Akun WhatsApp untuk Tools</div>
+          <div class="form-group" style="margin-top:14px;">
+            <label>Akun yang dipakai</label>
+            <select id="toolsAccountSelect" onchange="loadWAGroups(); loadChatHistory()"><option value="">Memuat akun...</option></select>
+          </div>
+        </div>
         <div class="tools-grid">
           <div class="column">
             <div class="card"><div class="feature-badge">Validasi Nomor WhatsApp</div><div class="hint">Cek apakah nomor terdaftar di WhatsApp. Masukkan nomor satu per baris, maksimum 500.</div><textarea id="validateInput" placeholder="628123456789&#10;628198765432" rows="5" style="margin-top:8px;font-family:monospace;font-size:13px;"></textarea><div class="btn-row"><button class="btn btn-primary btn-sm" id="validateRun" onclick="runValidateNumbers()">Validasi</button><button class="btn btn-secondary btn-sm" onclick="copyValidNumbers()">Salin Valid</button><button class="btn btn-secondary btn-sm" onclick="clearValidation()">Hapus</button></div><div id="validateStatus" class="status-text"></div><textarea id="validateOutput" placeholder="Hasil validasi..." readonly style="display:none;margin-top:8px;font-family:monospace;font-size:13px;" rows="5"></textarea></div>
@@ -281,11 +563,57 @@
         </div>
         <div class="two-column">
           <div class="column"><div class="card card-purple"><div class="card-title"><span>AI</span> Konfigurasi Auto-Reply</div><label class="toggle"><input type="checkbox" id="aiEnabled" /> Aktifkan balas otomatis AI</label><label class="toggle"><input type="checkbox" id="aiOcrEnabled" checked /> Aktifkan AI Vision untuk gambar masuk</label><label class="toggle"><input type="checkbox" id="aiRajaOngkirEnabled" /> Integrasi RajaOngkir untuk cek ongkir</label><div id="aiRajaOngkirFields" style="display:none;"><div class="form-group"><label>API Key RajaOngkir</label><input type="password" id="aiRajaOngkirApiKey" placeholder="Masukkan API key Shipping Cost" /></div><div class="form-group"><label>Lokasi Origin</label><input type="text" id="aiRajaOngkirOrigin" placeholder="Contoh: Jakarta Selatan, DKI Jakarta" /></div><div class="hint">Satu hit biasanya berarti satu request ke endpoint RajaOngkir, misalnya sekali cek ongkir atau sekali pencarian tujuan.</div></div><div class="form-group"><label>Pilih akun WhatsApp untuk AI</label><div id="aiAccountPicker" class="account-picker"><div class="empty-state-inline">Memuat akun...</div></div></div><div class="form-group"><label>Delay Balas (ms)</label><input type="number" id="aiDelayMs" value="1200" min="0" /></div><div class="form-row"><div class="form-group"><label>Memory Riwayat</label><input type="number" id="aiMaxHistory" value="15" min="1" max="50" /></div><div class="form-group"><label>Batch Window (ms)</label><input type="number" id="aiBatchWindowMs" value="4500" min="500" max="30000" /></div></div><div class="hint">Pesan yang masuk berdekatan dalam satu chat akan digabung sebelum AI membalas.</div></div></div>
-          <div class="column"><div class="card"><div class="card-title"><span>Prompt</span> Prompt AI</div><div class="form-group"><label>Instruksi AI</label><textarea id="aiInstruction" rows="6" placeholder="Contoh: Jawab singkat, ramah, dan fokus closing.">Jawab dengan singkat, jelas, natural, dan sopan dalam bahasa Indonesia.</textarea></div><div class="form-group"><label>Info Produk</label><textarea id="aiProductInfo" rows="6" placeholder="Masukkan detail produk atau layanan agar AI menjawab lebih akurat."></textarea></div><div class="btn-row"><button class="btn btn-primary" onclick="saveAISettings()">Simpan AI</button><button class="btn btn-secondary" onclick="testAI()">Test AI</button></div><div id="aiStatus" class="status-text"></div><div id="aiLastError" class="status-text" style="color:#ef4444;"></div></div></div>
+          <div class="column"><div class="card"><div class="card-title"><span>Prompt</span> Prompt & Pengetahuan Umum</div><div class="form-group"><label>Instruksi AI</label><textarea id="aiInstruction" rows="6" placeholder="Contoh: Jawab singkat, ramah, dan fokus closing.">Jawab dengan singkat, jelas, natural, dan sopan dalam bahasa Indonesia.</textarea></div><div class="form-group"><label>Catatan Umum AI</label><textarea id="aiProductInfo" rows="5" placeholder="Masukkan info umum toko, aturan closing, kebijakan order, atau hal lain yang berlaku untuk semua CS."></textarea></div><div class="btn-row"><button class="btn btn-primary" onclick="saveAISettings()">Simpan AI</button><button class="btn btn-secondary" onclick="testAI()">Test AI</button></div><div id="aiStatus" class="status-text"></div><div id="aiLastError" class="status-text" style="color:#ef4444;"></div></div></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>Produk</span> Product Knowledge</div>
+          <div class="ai-knowledge-toolbar">
+            <div class="form-group">
+              <label>Pilih Produk</label>
+              <select id="aiKnowledgeSelect" onchange="handleAIKnowledgeSelect(this.value)">
+                <option value="">Belum ada product knowledge</option>
+              </select>
+            </div>
+            <div class="btn-row">
+              <button class="btn btn-primary btn-sm" onclick="startNewAIKnowledgeProduct()">Tambah Produk</button>
+              <button class="btn btn-secondary btn-sm" onclick="editSelectedAIKnowledgeProduct()">Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteSelectedAIKnowledgeProduct()">Hapus</button>
+            </div>
+          </div>
+          <div id="aiKnowledgeDetail" class="ai-knowledge-detail"><div class="empty-state-inline">Pilih produk untuk melihat knowledge.</div></div>
+          <div id="aiKnowledgeEditor" class="ai-knowledge-editor" style="display:none;">
+            <input type="hidden" id="aiKnowledgeEditingId" />
+            <div class="form-row">
+              <div class="form-group"><label>Nama Produk</label><input type="text" id="aiKnowledgeName" placeholder="Contoh: Kawat Gigi Premium" /></div>
+              <div class="form-group">
+                <label>Gambar Produk</label>
+                <input type="file" id="aiKnowledgeImageInput" accept="image/*" style="display:none" onchange="handleAIKnowledgeImageUpload(event)" />
+                <div class="btn-row">
+                  <button class="btn btn-secondary btn-sm" onclick="document.getElementById('aiKnowledgeImageInput').click()">Upload Gambar</button>
+                  <button class="btn btn-secondary btn-sm" onclick="clearAIKnowledgeForm()">Batal</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-group"><label>Deskripsi / Knowledge Produk</label><textarea id="aiKnowledgeContent" rows="6" placeholder="Isi detail produk, manfaat, harga, stok, variasi, cara order, FAQ, dan aturan yang perlu dipahami AI untuk produk ini."></textarea></div>
+            <div id="aiKnowledgeImagePreview" class="image-preview-text"></div>
+            <div class="btn-row">
+              <button class="btn btn-primary" onclick="saveAIKnowledgeProduct()">Simpan Produk</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span>Mapping</span> Produk untuk Akun CS</div>
+          <div class="form-group">
+            <label>Pilih Akun WhatsApp</label>
+            <select id="aiKnowledgeAccountSelect" onchange="handleAIKnowledgeAccountSelect(this.value)">
+              <option value="">Pilih akun WhatsApp...</option>
+            </select>
+          </div>
+          <div id="aiAccountKnowledgeMatrix" class="ai-account-knowledge-matrix"><div class="empty-state-inline">Pilih akun WA dan product knowledge terlebih dahulu.</div></div>
         </div>
       </div>
       <div class="tab-pane" id="tab-api-docs">
-        <div class="page-header"><h1 class="page-title">API Docs</h1><p class="page-subtitle">Dokumentasi API sinkronisasi untuk integrasi aplikasi lain.</p></div>
+        <div class="page-header"><h1 class="page-title">API & Integrasi</h1><p class="page-subtitle">Dokumentasi API sinkronisasi untuk integrasi aplikasi lain.</p></div>
         <div class="card api-docs-card">
           <div class="card-title"><span>Info</span> Ringkasan Integrasi</div>
           <div class="api-docs-grid">
@@ -445,25 +773,40 @@ Content-Type: application/json
         </div>
       </div>
       <div class="tab-pane" id="tab-waba">
-        <div class="page-header"><h1 class="page-title">WABA Cloud</h1><p class="page-subtitle">Fitur tambahan untuk onboarding WhatsApp Business Account resmi via Meta Embedded Signup tanpa mengganggu sistem QR yang sudah ada.</p></div>
+        <div class="page-header"><h1 class="page-title">WABA Cloud</h1></div>
         <div class="two-column">
           <div class="column">
             <div class="card">
-              <div class="card-title"><span>Meta</span> Meta Embedded Signup</div>
+              <div class="card-title"><span>Meta</span> Koneksi Token Manual</div>
               <div class="waba-feature-card">
                 <div class="waba-feature-badges">
                   <span class="feature-badge">OFFICIAL</span>
                   <span class="feature-badge feature-badge-green">CLOUD</span>
-                  <span class="feature-badge feature-badge-orange">BETA</span>
+                  <span class="feature-badge feature-badge-blue">MANUAL</span>
                 </div>
-                <h3>Pendaftaran WABA Otomatis</h3>
-                <p>Hubungkan nomor WhatsApp Business API resmi melalui popup Meta seperti contoh yang Anda kirim. Modul ini terpisah dari login QR biasa.</p>
-                <div class="hint">Status saat ini: signup WABA Cloud sudah dipisah dari sistem QR lama, dan hasil onboarding akan disinkronkan ke akun WABA tenant ini.</div>
+                <h3>Login Manual WhatsApp Business</h3>
+                <p>Masukkan Access Token dan WABA ID dari Meta Business atau Developer Console.</p>
+                <div class="hint">Token minimal perlu izin <code>whatsapp_business_management</code> dan <code>whatsapp_business_messaging</code>. Sistem akan mencoba membaca nomor aktif, subscribe webhook, lalu menyimpan akun WABA Cloud ke tenant ini.</div>
+                <div class="form-group" style="margin-top:16px;">
+                  <label>Access Token *</label>
+                  <input type="password" id="metaManualAccessToken" placeholder="Masukkan access token WhatsApp Business API Anda" autocomplete="off" />
+                  <div class="hint">Bisa berupa System User Token atau token manual lain yang punya akses ke WABA.</div>
+                </div>
+                <div class="form-group">
+                  <label>WABA ID *</label>
+                  <input type="text" id="metaManualWabaId" placeholder="Contoh: 123456789012345" autocomplete="off" />
+                  <div class="hint">ID WhatsApp Business Account dari Meta Developer Console atau Business Manager.</div>
+                </div>
+                <div class="form-group">
+                  <label>Nama Akun Opsional</label>
+                  <input type="text" id="metaManualName" placeholder="Contoh: CS Toko Utama" autocomplete="off" />
+                </div>
                 <div class="btn-row" style="margin-top:16px;">
-                  <button class="btn btn-primary" onclick="openMetaSignupModal()">Hubungkan dengan Facebook</button>
+                  <button class="btn btn-primary" onclick="connectMetaManual()">Hubungkan WhatsApp</button>
                   <button class="btn btn-secondary" onclick="loadMetaAccounts()">Refresh Daftar</button>
+                  <a class="btn btn-secondary" href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noopener noreferrer">Panduan Meta</a>
                 </div>
-                <div id="metaSignupStatus" class="status-text"></div>
+                <div id="metaManualStatus" class="status-text"></div>
               </div>
             </div>
           </div>
@@ -475,7 +818,7 @@ Content-Type: application/json
                 <div class="stat-card green"><div class="stat-info"><div class="stat-label">Siap Setup</div><div class="stat-value" id="metaStatReady">0</div></div></div>
                 <div class="stat-card orange"><div class="stat-info"><div class="stat-label">Pending</div><div class="stat-value" id="metaStatPending">0</div></div></div>
               </div>
-              <div class="hint">Jika flow Meta selesai, akun akan langsung dicoba sinkronkan ke WABA ID dan Phone Number ID asli. Jika masih ada kendala di sisi Meta, status akan tampil sebagai `pending_setup` beserta catatannya.</div>
+              <div class="hint">Setelah token manual diverifikasi, akun akan dicoba sinkronkan ke WABA ID, nomor aktif, dan webhook subscription. Jika token valid tetapi nomor belum lengkap, status akan tampil sebagai <code>pending_setup</code>.</div>
             </div>
           </div>
         </div>
@@ -490,18 +833,46 @@ Content-Type: application/json
         </div>
       </div>
       <div class="tab-pane" id="tab-history">
-        <div class="page-header"><h1 class="page-title">Riwayat Broadcast</h1><p class="page-subtitle">Catatan lengkap setiap sesi pengiriman broadcast</p></div>
+        <div class="page-header"><h1 class="page-title">Laporan</h1><p class="page-subtitle">Pantau progress, hasil kirim, dan catatan lengkap setiap campaign blast.</p></div>
         <div class="card"><div class="card-title"><span>Ringkasan</span> Ringkasan</div><div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:8px;"><div style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#22c55e;" id="histTotalSent">0</div><div style="font-size:11px; color:var(--muted);">Total Terkirim</div></div><div style="background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#ef4444;" id="histTotalFailed">0</div><div style="font-size:11px; color:var(--muted);">Total Gagal</div></div><div style="background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#3b82f6;" id="histTotalSessions">0</div><div style="font-size:11px; color:var(--muted);">Total Sesi</div></div><div style="background:rgba(168,85,247,0.1); border:1px solid rgba(168,85,247,0.2); border-radius:8px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#a855f7;" id="histSuccessRate">0%</div><div style="font-size:11px; color:var(--muted);">Success Rate</div></div></div></div>
+        <div class="card">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <div>
+              <div class="card-title"><span>Queue</span> Aktif & Jadwal</div>
+              <div class="hint" style="margin:8px 0 0;">Semua blast yang sedang berjalan dan yang masih dijadwalkan dikumpulkan di sini.</div>
+            </div>
+            <div class="btn-row" style="margin-left:auto;">
+              <button class="btn btn-secondary btn-sm" onclick="loadHistoryQueue()">Muat Ulang Queue</button>
+            </div>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:14px;">
+            <div style="background:rgba(59,130,246,0.08); border:1px solid rgba(59,130,246,0.18); border-radius:12px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#2563eb;" id="queueRunningCount">0</div><div style="font-size:11px; color:var(--muted);">Sedang Berjalan</div></div>
+            <div style="background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.18); border-radius:12px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#d97706;" id="queuePendingCount">0</div><div style="font-size:11px; color:var(--muted);">Menunggu Jadwal</div></div>
+            <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.18); border-radius:12px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#059669;" id="queueBroadcastCount">0</div><div style="font-size:11px; color:var(--muted);">Jadwal Broadcast</div></div>
+            <div style="background:rgba(139,92,246,0.08); border:1px solid rgba(139,92,246,0.18); border-radius:12px; padding:12px; text-align:center;"><div style="font-size:22px; font-weight:700; color:#7c3aed;" id="queuePersonalCount">0</div><div style="font-size:11px; color:var(--muted);">Jadwal Personalisasi</div></div>
+          </div>
+          <div style="overflow-x:auto; margin-top:14px;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>Tipe</th>
+                  <th>Judul / Keterangan</th>
+                  <th>Akun</th>
+                  <th>Waktu / Progress</th>
+                  <th>Total</th>
+                  <th>Hasil</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="historyQueueTableBody">
+                <tr><td colspan="8" class="empty-cell">Memuat queue broadcast...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
         <div class="card"><div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;"><button class="btn btn-danger btn-sm" onclick="clearHistory()" style="margin-left:auto;">Hapus Riwayat</button></div></div>
         <div class="card"><div class="card-title"><span>List</span> Daftar Riwayat</div><div style="overflow-x:auto; margin-top:8px;"><table class="data-table" id="historyTable"><thead><tr><th style="width:30px;">#</th><th>Tanggal</th><th style="text-align:center;">Total</th><th style="text-align:center;color:#22c55e;">OK</th><th style="text-align:center;color:#ef4444;">Fail</th><th>Pesan</th><th>Durasi</th><th>Tipe</th></tr></thead><tbody id="historyTableBody"><tr><td colspan="8" class="empty-cell">Belum ada riwayat broadcast</td></tr></tbody></table></div></div>
-      </div>
-
-      <div class="tab-pane" id="tab-settings">
-        <div class="page-header"><h1 class="page-title">Pengaturan</h1><p class="page-subtitle">Konfigurasi broadcast dan koneksi</p></div>
-        <div class="two-column">
-          <div class="column"><div class="card"><div class="card-title"><span>Delay</span> Delay Kirim</div><div class="form-group"><label>Delay (detik)</label><input type="number" id="delay" value="3" min="1" /></div><label class="toggle"><input type="checkbox" id="randomDelay" /> Random Delay</label><div id="randomDelayRow" style="display:none;"><div class="form-row"><div class="form-group"><label>Min (dtk)</label><input type="number" id="delayMin" value="2" min="1" /></div><div class="form-group"><label>Max (dtk)</label><input type="number" id="delayMax" value="5" min="1" /></div></div></div></div></div>
-          <div class="column"><div class="card"><div class="card-title"><span>Pause</span> Burst Pause</div><div class="hint">Jeda panjang setelah mengirim sejumlah pesan tertentu agar lebih natural.</div><div class="form-row"><div class="form-group"><label>Pause tiap</label><input type="number" id="burstEvery" value="0" min="0" placeholder="50" /></div><div class="form-group"><label>Durasi (dtk)</label><input type="number" id="burstPauseSec" value="0" min="0" placeholder="60" /></div></div></div><div class="card"><div class="card-title"><span>Simpan</span> Simpan Pengaturan</div><button class="btn btn-primary" onclick="saveSettings()">Simpan Semua</button><div id="settingsStatus" class="status-text" style="margin-top:8px;"></div></div></div>
-        </div>
       </div>
 
       <div class="tab-pane" id="tab-admin">
@@ -520,14 +891,31 @@ Content-Type: application/json
               <div class="btn-row"><button class="btn btn-primary" onclick="createManagedUser()">Tambah User</button></div>
               <div id="adminUserStatus" class="status-text"></div>
             </div>
+            <div class="card" id="adminEditUserCard" style="display:none;">
+              <div class="card-title"><span>Edit</span> Edit User</div>
+              <div class="form-group"><label>Email</label><input type="email" id="adminEditUserEmail" placeholder="user@email.com" /></div>
+              <div class="form-group"><label>Password Baru</label><input type="password" id="adminEditUserPassword" placeholder="Kosongkan jika tidak ingin mengganti password" /></div>
+              <div class="form-row">
+                <div class="form-group"><label>Maksimal device login</label><input type="number" id="adminEditUserMaxDevices" value="1" min="1" /></div>
+                <div class="form-group"><label>Masa aktif (hari dari sekarang)</label><input type="number" id="adminEditUserActiveDays" value="3" min="1" /></div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="adminEditUserCanAI" /> User boleh memakai InstaBlast AI</label>
+              <label class="toggle"><input type="checkbox" id="adminEditUserIsActive" checked /> Akun aktif</label>
+              <label class="toggle"><input type="checkbox" id="adminEditUserIsTrial" /> Tandai sebagai user trial</label>
+              <div class="btn-row">
+                <button class="btn btn-primary" onclick="saveManagedUserEdit()">Simpan Perubahan</button>
+                <button class="btn btn-secondary" type="button" onclick="cancelManagedUserEdit()">Batal</button>
+              </div>
+              <div id="adminEditUserStatus" class="status-text"></div>
+            </div>
           </div>
           <div class="column">
             <div class="card">
               <div class="card-title"><span>List</span> Daftar User</div>
               <div style="overflow-x:auto; margin-top:8px;">
                 <table class="data-table">
-                  <thead><tr><th>Email</th><th>Role</th><th>AI</th><th>Device</th><th>Masa Aktif</th><th>Aksi</th></tr></thead>
-                  <tbody id="adminUsersTableBody"><tr><td colspan="6" class="empty-cell">Memuat user...</td></tr></tbody>
+                  <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>AI</th><th>Device</th><th>Masa Aktif</th><th>Aksi</th></tr></thead>
+                  <tbody id="adminUsersTableBody"><tr><td colspan="7" class="empty-cell">Memuat user...</td></tr></tbody>
                 </table>
               </div>
             </div>
@@ -538,7 +926,7 @@ Content-Type: application/json
               <div class="btn-row"><button class="btn btn-primary" onclick="saveAdminAIConfig()">Simpan API Key</button></div>
               <div id="adminAIStatus" class="status-text"></div>
             </div>
-            <div class="card">
+            <div class="card" hidden>
               <div class="card-title"><span>Meta</span> Konfigurasi WABA Cloud</div>
               <div class="form-group"><label>App ID</label><input type="text" id="adminMetaAppId" placeholder="Meta App ID" /></div>
               <div class="form-group"><label>App Secret</label><input type="password" id="adminMetaAppSecret" placeholder="Meta App Secret" /></div>
@@ -571,7 +959,7 @@ Content-Type: application/json
 
   <div class="toast-container" id="toastContainer"></div>
 
-  <div class="modal-overlay" id="metaSignupModal" onclick="if(event.target===this)closeMetaSignupModal()">
+  <div class="modal-overlay" id="metaSignupModal" onclick="if(event.target===this)closeMetaSignupModal()" hidden>
     <div class="modal-card">
       <div class="modal-card-header">
         <div>
@@ -620,6 +1008,6 @@ Content-Type: application/json
     </div>
   </div>
 
-  <script src="/assets/app.js"></script>
+  <script src="/assets/app.js?v=20260502-0116"></script>
 </body>
 </html>

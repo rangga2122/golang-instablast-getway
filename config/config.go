@@ -13,6 +13,10 @@ var (
 	AppDebug   = false
 	AppVersion = "1.0.0"
 
+	// Trial
+	TrialActiveDays = 3
+	TrialMaxDevices = 1
+
 	// Database
 	DBURI = "file:storages/whatsapp.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(15000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=temp_store(MEMORY)"
 
@@ -45,6 +49,8 @@ func init() {
 	AppHost = firstNonEmpty(strings.TrimSpace(os.Getenv("APP_HOST")), AppHost)
 	DBURI = firstNonEmpty(strings.TrimSpace(os.Getenv("DB_URI")), DBURI)
 	AppDebug = envBool("APP_DEBUG", AppDebug)
+	TrialActiveDays = envInt("TRIAL_ACTIVE_DAYS", TrialActiveDays)
+	TrialMaxDevices = envInt("TRIAL_MAX_DEVICES", TrialMaxDevices)
 }
 
 func firstNonEmpty(values ...string) string {
@@ -62,6 +68,18 @@ func envBool(key string, fallback bool) bool {
 		return fallback
 	}
 	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envInt(key string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
 	if err != nil {
 		return fallback
 	}
