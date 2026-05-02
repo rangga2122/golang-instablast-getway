@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -14,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -64,6 +67,46 @@ type imagePayload struct {
 	Name string `json:"name,omitempty"`
 }
 
+type broadcastAIHelperRequest struct {
+	Mode      string   `json:"mode"`
+	Message   string   `json:"message"`
+	Variables []string `json:"variables"`
+}
+
+type nvidiaChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type nvidiaChatRequest struct {
+	Model       string              `json:"model"`
+	Messages    []nvidiaChatMessage `json:"messages"`
+	Temperature float64             `json:"temperature"`
+	TopP        float64             `json:"top_p"`
+	MaxTokens   int                 `json:"max_tokens"`
+	Stream      bool                `json:"stream"`
+}
+
+type nvidiaChatResponse struct {
+	Choices []struct {
+		Message nvidiaChatMessage `json:"message"`
+	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+type nvidiaChatStreamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
 func decodeImagePayloads(items []imagePayload, legacyB64, legacyMime string) ([]broadcast.MediaItem, []imagePayload, error) {
 	if len(items) == 0 && strings.TrimSpace(legacyB64) != "" {
 		items = []imagePayload{{Data: strings.TrimSpace(legacyB64), Mime: strings.TrimSpace(legacyMime)}}
@@ -78,20 +121,22 @@ func decodeImagePayloads(items []imagePayload, legacyB64, legacyMime string) ([]
 		}
 		imgData, err := base64.StdEncoding.DecodeString(raw)
 		if err != nil {
-			return nil, nil, fmt.Errorf("invalid image data")
+			return nil, nil, fmt.Errorf("invalid media data")
 		}
 		mimeType := strings.TrimSpace(item.Mime)
 		if mimeType == "" {
 			mimeType = "image/jpeg"
 		}
+		name := strings.TrimSpace(item.Name)
 		decoded = append(decoded, broadcast.MediaItem{
 			Data: imgData,
 			Mime: mimeType,
+			Name: name,
 		})
 		sanitized = append(sanitized, imagePayload{
 			Data: raw,
 			Mime: mimeType,
-			Name: strings.TrimSpace(item.Name),
+			Name: name,
 		})
 	}
 	return decoded, sanitized, nil
@@ -144,7 +189,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 
 	app.Use(func(c *fiber.Ctx) error {
 		path := c.Path()
-		if strings.HasPrefix(path, "/assets") || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/privacy-policy" || path == "/terms-of-service" || path == "/data-deletion" || path == "/data-deletion-status" || path == "/api/auth/login" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" || path == "/api/meta/data-deletion" {
+		if strings.HasPrefix(path, "/assets") || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/privacy-policy" || path == "/terms-of-service" || path == "/data-deletion" || path == "/data-deletion-status" || path == "/api/auth/login" || path == "/api/auth/register-trial" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" || path == "/api/meta/data-deletion" {
 			return c.Next()
 		}
 		if AuthService == nil {
@@ -172,6 +217,9 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err != nil {
 			return c.Status(500).SendString("Failed to load UI")
 		}
+		c.Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Set("Pragma", "no-cache")
+		c.Set("Expires", "0")
 		c.Set("Content-Type", "text/html")
 		return c.Send(data)
 	})
@@ -185,6 +233,9 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err != nil {
 			return c.Status(500).SendString("Failed to load login UI")
 		}
+		c.Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Set("Pragma", "no-cache")
+		c.Set("Expires", "0")
 		c.Set("Content-Type", "text/html")
 		return c.Send(data)
 	})
@@ -349,9 +400,81 @@ func runServer(cmd_ *cobra.Command, args []string) {
 				"id":          user.ID,
 				"email":       user.Email,
 				"is_admin":    user.IsAdmin,
+				"is_trial":    user.IsTrial,
 				"can_use_ai":  user.CanUseAI,
-				"max_devices": user.MaxDevices,
+				"max_devices": effectiveUserMaxDevices(user),
 				"expires_at":  user.ExpiresAt,
+			},
+		})
+	})
+	api.Post("/auth/register-trial", func(c *fiber.Ctx) error {
+		var body struct {
+			Email           string `json:"email"`
+			Password        string `json:"password"`
+			ConfirmPassword string `json:"confirm_password"`
+		}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+
+		email := strings.TrimSpace(strings.ToLower(body.Email))
+		password := body.Password
+		confirmPassword := body.ConfirmPassword
+
+		if email == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Email wajib diisi"})
+		}
+		if len(strings.TrimSpace(password)) < 6 {
+			return c.Status(400).JSON(fiber.Map{"error": "Password minimal 6 karakter"})
+		}
+		if password != confirmPassword {
+			return c.Status(400).JSON(fiber.Map{"error": "Konfirmasi password tidak cocok"})
+		}
+		if config.TrialActiveDays <= 0 {
+			return c.Status(500).JSON(fiber.Map{"error": "Konfigurasi trial tidak valid di server"})
+		}
+		if _, err := Store.GetUserByEmail(email); err == nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Email sudah terdaftar"})
+		}
+
+		expiresAt := time.Now().Add(time.Duration(config.TrialActiveDays) * 24 * time.Hour)
+		_, err := Store.CreateUser(storage.CreateUserInput{
+			Email:      email,
+			Password:   password,
+			IsAdmin:    false,
+			IsTrial:    true,
+			CanUseAI:   true,
+			MaxDevices: config.TrialMaxDevices,
+			ExpiresAt:  expiresAt,
+		})
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+
+		user, session, err := AuthService.Login(email, password)
+		if err != nil {
+			logrus.WithField("email", email).Errorf("failed to auto-login new trial user: %v", err)
+			return c.Status(500).JSON(fiber.Map{"error": "Akun trial berhasil dibuat, tetapi login otomatis gagal. Silakan login manual."})
+		}
+
+		c.Cookie(&fiber.Cookie{
+			Name:     auth.SessionCookieName,
+			Value:    session.Token,
+			HTTPOnly: true,
+			SameSite: "Lax",
+			Path:     "/",
+			Expires:  session.ExpiresAt,
+		})
+		return c.JSON(fiber.Map{
+			"user": fiber.Map{
+				"id":          user.ID,
+				"email":       user.Email,
+				"is_admin":    user.IsAdmin,
+				"is_trial":    user.IsTrial,
+				"can_use_ai":  user.CanUseAI,
+				"max_devices": effectiveUserMaxDevices(user),
+				"expires_at":  user.ExpiresAt,
+				"trial_days":  config.TrialActiveDays,
 			},
 		})
 	})
@@ -378,8 +501,9 @@ func runServer(cmd_ *cobra.Command, args []string) {
 				"id":          user.ID,
 				"email":       user.Email,
 				"is_admin":    user.IsAdmin,
+				"is_trial":    user.IsTrial,
 				"can_use_ai":  user.CanUseAI,
-				"max_devices": user.MaxDevices,
+				"max_devices": effectiveUserMaxDevices(user),
 				"expires_at":  user.ExpiresAt,
 			},
 		})
@@ -418,6 +542,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			Email:      body.Email,
 			Password:   body.Password,
 			IsAdmin:    body.IsAdmin,
+			IsTrial:    false,
 			CanUseAI:   body.CanUseAI,
 			MaxDevices: body.MaxDevices,
 			ExpiresAt:  time.Now().Add(time.Duration(body.ActiveDays) * 24 * time.Hour),
@@ -426,6 +551,51 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(fiber.Map{"user": created})
+	})
+	api.Patch("/admin/users/:id", func(c *fiber.Ctx) error {
+		user, err := currentUser(c)
+		if err != nil || !user.IsAdmin {
+			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
+		}
+		var body struct {
+			Email      string `json:"email"`
+			Password   string `json:"password"`
+			MaxDevices int    `json:"max_devices"`
+			CanUseAI   bool   `json:"can_use_ai"`
+			ActiveDays int    `json:"active_days"`
+			IsAdmin    bool   `json:"is_admin"`
+			IsTrial    bool   `json:"is_trial"`
+			IsActive   bool   `json:"is_active"`
+		}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+
+		targetID := strings.TrimSpace(c.Params("id"))
+		existing, err := Store.GetUserByID(targetID)
+		if err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": "User tidak ditemukan"})
+		}
+		if existing.IsAdmin {
+			return c.Status(400).JSON(fiber.Map{"error": "User admin tidak bisa diedit dari menu ini"})
+		}
+		if body.ActiveDays <= 0 {
+			body.ActiveDays = 1
+		}
+		updated, err := Store.UpdateUserByID(targetID, storage.UpdateUserInput{
+			Email:      body.Email,
+			Password:   body.Password,
+			IsAdmin:    body.IsAdmin,
+			IsTrial:    body.IsTrial,
+			CanUseAI:   body.CanUseAI,
+			MaxDevices: body.MaxDevices,
+			ExpiresAt:  time.Now().Add(time.Duration(body.ActiveDays) * 24 * time.Hour),
+			IsActive:   body.IsActive,
+		})
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"user": updated})
 	})
 	api.Delete("/admin/users/:id", func(c *fiber.Ctx) error {
 		user, err := currentUser(c)
@@ -461,6 +631,62 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(fiber.Map{"status": "saved", "global_api_key": Store.GetPref("global_nvidia_api_key")})
+	})
+	api.Post("/broadcast/ai-helper", func(c *fiber.Ctx) error {
+		user, err := currentUser(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
+		}
+		if !user.IsAdmin && !user.CanUseAI {
+			return c.Status(403).JSON(fiber.Map{"error": "Akses AI belum aktif untuk user ini"})
+		}
+		var body broadcastAIHelperRequest
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+		body.Mode = strings.ToLower(strings.TrimSpace(body.Mode))
+		body.Message = strings.TrimSpace(body.Message)
+		if body.Message == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Isi pesan wajib diisi"})
+		}
+		if len(body.Message) > 12000 {
+			return c.Status(400).JSON(fiber.Map{"error": "Pesan terlalu panjang untuk dianalisa AI"})
+		}
+		if body.Mode != "analyze" && body.Mode != "spintax" {
+			return c.Status(400).JSON(fiber.Map{"error": "Mode AI tidak dikenal"})
+		}
+		apiKey := strings.TrimSpace(ai.ResolveAPIKey())
+		if apiKey == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "API key NVIDIA belum valid. Simpan API key yang diawali nvapi- di menu Admin"})
+		}
+
+		prompt := buildBroadcastAIHelperPrompt(body)
+		content, err := callNvidiaBroadcastAssistant(c.UserContext(), apiKey, prompt, body.Mode == "spintax")
+		if err != nil {
+			return c.Status(502).JSON(fiber.Map{"error": err.Error()})
+		}
+		parsed := parseBroadcastAIJSON(content)
+		if body.Mode == "spintax" {
+			spintaxMessage := strings.TrimSpace(parsed["spintax_message"])
+			if spintaxMessage == "" {
+				spintaxMessage = strings.TrimSpace(content)
+			}
+			return c.JSON(fiber.Map{
+				"mode":            "spintax",
+				"spintax_message": spintaxMessage,
+			})
+		}
+
+		analysis := strings.TrimSpace(parsed["analysis"])
+		if analysis == "" {
+			analysis = strings.TrimSpace(content)
+		}
+		return c.JSON(fiber.Map{
+			"mode":             "analyze",
+			"risk_level":       strings.TrimSpace(parsed["risk_level"]),
+			"analysis":         analysis,
+			"improved_message": strings.TrimSpace(parsed["improved_message"]),
+		})
 	})
 	api.Get("/admin/meta-config", func(c *fiber.Ctx) error {
 		user, err := currentUser(c)
@@ -518,6 +744,53 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(fiber.Map{"accounts": accounts})
+	})
+	api.Post("/meta/manual/connect", func(c *fiber.Ctx) error {
+		user, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		var body struct {
+			AccessToken string `json:"access_token"`
+			WABAID      string `json:"waba_id"`
+			Name        string `json:"name"`
+		}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+		if strings.TrimSpace(body.AccessToken) == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Access token wajib diisi"})
+		}
+		if strings.TrimSpace(body.WABAID) == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "WABA ID wajib diisi"})
+		}
+		cfg := metaConfigFromStore(c)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		item, warnings, err := finalizeMetaManualConnect(
+			ctx,
+			tenantCtx.Store,
+			cfg,
+			strings.TrimSpace(body.AccessToken),
+			strings.TrimSpace(body.WABAID),
+			strings.TrimSpace(body.Name),
+		)
+		if err != nil {
+			statusCode := 500
+			lowerErr := strings.ToLower(err.Error())
+			if strings.Contains(lowerErr, "meta graph error") || strings.Contains(lowerErr, "access token") || strings.Contains(lowerErr, "waba id") || strings.Contains(lowerErr, "permission") {
+				statusCode = 400
+			}
+			return c.Status(statusCode).JSON(fiber.Map{"error": err.Error()})
+		}
+		logrus.WithFields(logrus.Fields{
+			"user_id":         user.ID,
+			"waba_id":         item.WABAID,
+			"phone_number_id": item.PhoneNumberID,
+			"status":          item.Status,
+			"onboarding":      item.OnboardingStatus,
+		}).Info("Meta WABA manual connection saved")
+		return c.JSON(fiber.Map{"status": "saved", "account": item, "warnings": warnings})
 	})
 	api.Get("/meta/signup/session", func(c *fiber.Ctx) error {
 		user, _, err := currentTenant(c)
@@ -706,7 +979,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err := c.BodyParser(&body); err != nil && len(c.Body()) > 0 {
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
 		}
-		if len(whatsapp.ListAccountsForUser(user.ID)) >= user.MaxDevices {
+		if len(whatsapp.ListAccountsForUser(user.ID)) >= effectiveUserMaxDevices(user) {
 			return c.Status(400).JSON(fiber.Map{"error": "Maksimal device login tercapai"})
 		}
 		account, err := whatsapp.CreateAccountForUser(user.ID, body.Name)
@@ -749,6 +1022,38 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 		account, _ := whatsapp.GetAccountForUser(user.ID, c.Params("id"))
+		return c.JSON(fiber.Map{"account": account})
+	})
+
+	api.Patch("/accounts/:id/webhook", func(c *fiber.Ctx) error {
+		user, _, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		var body struct {
+			Enabled bool   `json:"enabled"`
+			URL     string `json:"url"`
+			Secret  string `json:"secret"`
+		}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+
+		webhookURL := strings.TrimSpace(body.URL)
+		if body.Enabled {
+			parsedURL, err := url.Parse(webhookURL)
+			if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+				return c.Status(400).JSON(fiber.Map{"error": "URL webhook tidak valid"})
+			}
+			if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+				return c.Status(400).JSON(fiber.Map{"error": "URL webhook harus memakai http atau https"})
+			}
+		}
+
+		account, err := whatsapp.SetAccountWebhookForUser(user.ID, c.Params("id"), body.Enabled, webhookURL, body.Secret)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
 		return c.JSON(fiber.Map{"account": account})
 	})
 
@@ -1037,24 +1342,27 @@ func runServer(cmd_ *cobra.Command, args []string) {
 	})
 
 	api.Post("/broadcast/start", func(c *fiber.Ctx) error {
-		user, _, err := currentTenant(c)
+		user, tenantCtx, err := currentTenant(c)
 		if err != nil {
 			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
 		}
 		var body struct {
-			AccountID    string         `json:"account_id"`
-			Numbers      string         `json:"numbers"`
-			Message      string         `json:"message"`
-			UseSpintax   bool           `json:"use_spintax"`
-			ImageB64     string         `json:"image"`
-			ImageMime    string         `json:"image_mime"`
-			Images       []imagePayload `json:"images"`
-			DelaySeconds int            `json:"delay_seconds"`
-			RandomDelay  bool           `json:"random_delay"`
-			DelayMin     int            `json:"delay_min"`
-			DelayMax     int            `json:"delay_max"`
-			BurstEvery   int            `json:"burst_every"`
-			BurstPause   int            `json:"burst_pause"`
+			AccountID      string              `json:"account_id"`
+			Name           string              `json:"name"`
+			ContactGroupID string              `json:"contact_group_id"`
+			Numbers        string              `json:"numbers"`
+			ContactRows    []map[string]string `json:"contact_rows"`
+			Message        string              `json:"message"`
+			UseSpintax     bool                `json:"use_spintax"`
+			ImageB64       string              `json:"image"`
+			ImageMime      string              `json:"image_mime"`
+			Images         []imagePayload      `json:"images"`
+			DelaySeconds   int                 `json:"delay_seconds"`
+			RandomDelay    bool                `json:"random_delay"`
+			DelayMin       int                 `json:"delay_min"`
+			DelayMax       int                 `json:"delay_max"`
+			BurstEvery     int                 `json:"burst_every"`
+			BurstPause     int                 `json:"burst_pause"`
 		}
 		if err := c.BodyParser(&body); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
@@ -1066,14 +1374,27 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if len(nums) == 0 {
 			return c.Status(400).JSON(fiber.Map{"error": "No valid numbers"})
 		}
+		unsubscribeSet, _ := loadUnsubscribePhoneSet(tenantCtx.Store)
+		filteredNums, skipped := filterNumbersAgainstUnsubscribe(nums, unsubscribeSet)
+		if len(filteredNums) == 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "Semua nomor tujuan sudah masuk daftar unsubscribe"})
+		}
 
 		account, _ := whatsapp.GetAccountForUser(user.ID, body.AccountID)
+		campaignName := strings.TrimSpace(body.Name)
+		if campaignName == "" {
+			campaignName = "Broadcast " + time.Now().Format("02/01/2006 15:04")
+		}
+		contactRows := buildBroadcastContactRows(user.ID, body.AccountID, filteredNums, body.ContactRows)
+		_ = saveResolvedWANamesToContactList(tenantCtx.Store, body.ContactGroupID, contactRows)
 		cfg := broadcast.Config{
 			OwnerID:      user.ID,
 			AccountID:    body.AccountID,
 			AccountName:  account.Name,
-			Numbers:      nums,
-			Message:      body.Message,
+			CampaignName: campaignName,
+			Numbers:      filteredNums,
+			ContactRows:  contactRows,
+			Message:      appendUnsubscribeInstruction(tenantCtx.Store, body.Message),
 			UseSpintax:   body.UseSpintax,
 			DelaySeconds: body.DelaySeconds,
 			RandomDelay:  body.RandomDelay,
@@ -1092,11 +1413,11 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err := broadcast.GetEngineForUser(user.ID).Start(cfg); err != nil {
 			return c.Status(409).JSON(fiber.Map{"error": err.Error()})
 		}
-		return c.JSON(fiber.Map{"status": "started", "total": len(nums)})
+		return c.JSON(fiber.Map{"status": "started", "total": len(filteredNums), "skipped_unsubscribe": skipped})
 	})
 
 	api.Post("/broadcast/personal", func(c *fiber.Ctx) error {
-		user, _, err := currentTenant(c)
+		user, tenantCtx, err := currentTenant(c)
 		if err != nil {
 			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
 		}
@@ -1122,39 +1443,17 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			return c.Status(503).JSON(fiber.Map{"error": "WhatsApp not connected"})
 		}
 
-		reader := csv.NewReader(strings.NewReader(body.CSVData))
-		headers, err := reader.Read()
+		headers, data, err := parsePersonalCSVData(body.CSVData)
 		if err != nil {
-			return c.Status(400).JSON(fiber.Map{"error": "Invalid CSV: no headers"})
-		}
-		for i, h := range headers {
-			headers[i] = strings.TrimSpace(strings.ToLower(h))
-		}
-
-		var data []map[string]string
-		for {
-			record, err := reader.Read()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				continue
-			}
-			row := make(map[string]string)
-			for i, val := range record {
-				if i < len(headers) {
-					row[headers[i]] = strings.TrimSpace(val)
-				}
-			}
-			if num, ok := row["nomor"]; ok {
-				row["nomor"] = normalizePhone(num)
-			}
-			if row["nomor"] != "" {
-				data = append(data, row)
-			}
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
 		if len(data) == 0 {
 			return c.Status(400).JSON(fiber.Map{"error": "No valid data in CSV"})
+		}
+		unsubscribeSet, _ := loadUnsubscribePhoneSet(tenantCtx.Store)
+		filteredData, skipped := filterPersonalRowsAgainstUnsubscribe(data, unsubscribeSet)
+		if len(filteredData) == 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "Semua nomor di data personalisasi sudah unsubscribe"})
 		}
 
 		account, _ := whatsapp.GetAccountForUser(user.ID, body.AccountID)
@@ -1162,8 +1461,8 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			OwnerID:      user.ID,
 			AccountID:    body.AccountID,
 			AccountName:  account.Name,
-			Data:         data,
-			Message:      body.Message,
+			Data:         filteredData,
+			Message:      appendUnsubscribeInstruction(tenantCtx.Store, body.Message),
 			UseSpintax:   body.UseSpintax,
 			DelaySeconds: body.DelaySeconds,
 			RandomDelay:  body.RandomDelay,
@@ -1182,7 +1481,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err := broadcast.GetEngineForUser(user.ID).StartPersonal(cfg); err != nil {
 			return c.Status(409).JSON(fiber.Map{"error": err.Error()})
 		}
-		return c.JSON(fiber.Map{"status": "started", "total": len(data), "columns": headers})
+		return c.JSON(fiber.Map{"status": "started", "total": len(filteredData), "columns": headers, "skipped_unsubscribe": skipped})
 	})
 
 	api.Post("/broadcast/pause", func(c *fiber.Ctx) error {
@@ -1285,6 +1584,27 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		} else if len(broadcast.ParseNumbers(body.Numbers)) == 0 {
 			return c.Status(400).JSON(fiber.Map{"error": "No valid numbers"})
 		}
+		unsubscribeSet, _ := loadUnsubscribePhoneSet(tenantCtx.Store)
+		if body.ScheduleType == "personalisasi" {
+			headers, rows, err := parsePersonalCSVData(body.CSVData)
+			if err != nil {
+				return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+			}
+			filteredRows, _ := filterPersonalRowsAgainstUnsubscribe(rows, unsubscribeSet)
+			if len(filteredRows) == 0 {
+				return c.Status(400).JSON(fiber.Map{"error": "Semua nomor di jadwal personalisasi sudah unsubscribe"})
+			}
+			body.CSVData, err = buildPersonalCSVData(headers, filteredRows)
+			if err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": "Gagal memproses CSV jadwal"})
+			}
+		} else {
+			filteredNumbers, _ := filterNumbersAgainstUnsubscribe(broadcast.ParseNumbers(body.Numbers), unsubscribeSet)
+			if len(filteredNumbers) == 0 {
+				return c.Status(400).JSON(fiber.Map{"error": "Semua nomor di jadwal broadcast sudah unsubscribe"})
+			}
+			body.Numbers = strings.Join(filteredNumbers, "\n")
+		}
 		_, sanitizedImages, err := decodeImagePayloads(body.Images, body.ImageB64, body.ImageMime)
 		if err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
@@ -1313,7 +1633,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			AccountName:  account.Name,
 			Numbers:      body.Numbers,
 			CSVData:      body.CSVData,
-			Message:      body.Message,
+			Message:      appendUnsubscribeInstruction(tenantCtx.Store, body.Message),
 			UseSpintax:   body.UseSpintax,
 			ImageB64:     legacyImageB64,
 			ImageMime:    legacyImageMime,
@@ -1465,6 +1785,247 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		return c.JSON(fiber.Map{"status": "deleted"})
 	})
 
+	api.Get("/contacts/lists", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		lists, err := tenantCtx.Store.GetContactLists()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		items := make([]fiber.Map, 0, len(lists))
+		for _, item := range lists {
+			var columns []string
+			var contacts []map[string]string
+			_ = json.Unmarshal([]byte(item.ColumnsJSON), &columns)
+			_ = json.Unmarshal([]byte(item.ContactsJSON), &contacts)
+			items = append(items, fiber.Map{
+				"id":         item.ID,
+				"name":       item.Name,
+				"columns":    columns,
+				"contacts":   contacts,
+				"numbers":    item.Numbers,
+				"count":      item.Count,
+				"created_at": item.CreatedAt,
+				"updated_at": item.UpdatedAt,
+			})
+		}
+		return c.JSON(fiber.Map{"groups": items})
+	})
+	api.Post("/contacts/lists", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		var body struct {
+			Name     string              `json:"name"`
+			Columns  []string            `json:"columns"`
+			Contacts []map[string]string `json:"contacts"`
+		}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+		name := strings.TrimSpace(body.Name)
+		if name == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Nama grup kontak wajib diisi"})
+		}
+		if len(body.Contacts) == 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "Kontak belum ada"})
+		}
+		columnsJSON, _ := json.Marshal(body.Columns)
+		contactsJSON, _ := json.Marshal(body.Contacts)
+		numbers := make([]string, 0, len(body.Contacts))
+		for _, row := range body.Contacts {
+			number := ""
+			for key, value := range row {
+				switch strings.ToLower(strings.TrimSpace(key)) {
+				case "nomor", "phone", "no", "whatsapp", "wa", "hp", "telepon":
+					number = strings.TrimSpace(value)
+				}
+				if number != "" {
+					break
+				}
+			}
+			if number != "" {
+				numbers = append(numbers, number)
+			}
+		}
+		if len(numbers) == 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "Kolom nomor/phone/wa tidak ditemukan"})
+		}
+		if err := tenantCtx.Store.SaveContactList(name, string(columnsJSON), string(contactsJSON), strings.Join(numbers, "\n"), len(numbers)); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"status": "saved"})
+	})
+	api.Delete("/contacts/lists/:id", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "ID kontak tidak valid"})
+		}
+		if err := tenantCtx.Store.DeleteContactList(id); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"status": "deleted"})
+	})
+	api.Get("/contacts/unsubscribe/settings", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		settings, err := tenantCtx.Store.GetUnsubscribeSettings()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(settings)
+	})
+	api.Post("/contacts/unsubscribe/settings", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		var body storage.UnsubscribeSettings
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+		if err := tenantCtx.Store.SaveUnsubscribeSettings(body); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		settings, _ := tenantCtx.Store.GetUnsubscribeSettings()
+		return c.JSON(settings)
+	})
+	api.Get("/contacts/unsubscribe", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		items, err := tenantCtx.Store.ListUnsubscribedContacts()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"items": items})
+	})
+	api.Delete("/contacts/unsubscribe/:id", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "ID unsubscribe tidak valid"})
+		}
+		if err := tenantCtx.Store.DeleteUnsubscribedContact(id); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"status": "deleted"})
+	})
+
+	api.Get("/media/files", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		files, err := tenantCtx.Store.GetMediaFiles()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		items := make([]fiber.Map, 0, len(files))
+		for _, item := range files {
+			items = append(items, fiber.Map{
+				"id":            item.ID,
+				"name":          item.Name,
+				"original_name": item.OriginalName,
+				"mime":          item.Mime,
+				"size":          item.Size,
+				"url":           mediaFileURL(item.Name),
+				"created_at":    item.CreatedAt,
+			})
+		}
+		return c.JSON(fiber.Map{"files": items})
+	})
+	api.Post("/media/files", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		fileHeader, err := c.FormFile("file")
+		if err != nil || fileHeader == nil {
+			return c.Status(400).JSON(fiber.Map{"error": "File wajib diupload"})
+		}
+		mimeType := strings.TrimSpace(fileHeader.Header.Get("Content-Type"))
+		if mimeType == "" {
+			mimeType = "application/octet-stream"
+		}
+		savedName, err := issueManagedFileName(fileHeader.Filename)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		mediaDir := filepath.Join(tenantCtx.BaseDir, "media-manager")
+		if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		dst := filepath.Join(mediaDir, savedName)
+		if err := c.SaveFile(fileHeader, dst); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		rec := storage.MediaFile{
+			Name:         savedName,
+			OriginalName: strings.TrimSpace(fileHeader.Filename),
+			Mime:         mimeType,
+			Size:         fileHeader.Size,
+			Path:         dst,
+		}
+		if err := tenantCtx.Store.SaveMediaFile(rec); err != nil {
+			_ = os.Remove(dst)
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"status": "uploaded", "file": fiber.Map{
+			"name":          rec.Name,
+			"original_name": rec.OriginalName,
+			"mime":          rec.Mime,
+			"size":          rec.Size,
+			"url":           mediaFileURL(rec.Name),
+		}})
+	})
+	api.Delete("/media/files/:id", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+		if err != nil || id <= 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "ID file tidak valid"})
+		}
+		file, err := tenantCtx.Store.DeleteMediaFile(id)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		if file.Path != "" {
+			_ = os.Remove(file.Path)
+		}
+		return c.JSON(fiber.Map{"status": "deleted"})
+	})
+	api.Get("/media/files/:name", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		name := sanitizeManagedAssetName(c.Params("name"))
+		if name == "" {
+			return c.Status(404).SendString("not found")
+		}
+		path := filepath.Join(tenantCtx.BaseDir, "media-manager", name)
+		if _, err := os.Stat(path); err != nil {
+			return c.Status(404).SendString("not found")
+		}
+		return c.SendFile(path)
+	})
+
 	api.Get("/templates/:type", func(c *fiber.Ctx) error {
 		_, tenantCtx, err := currentTenant(c)
 		if err != nil {
@@ -1555,20 +2116,27 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if !user.CanUseAI {
 			settings.Enabled = false
 		}
+		products := make([]ai.ProductKnowledge, 0, len(settings.Products))
+		for _, item := range settings.Products {
+			item.ImageURL = aiProductImageURL(item.ImagePath)
+			products = append(products, item)
+		}
 		return c.JSON(fiber.Map{
-			"enabled":            settings.Enabled,
-			"api_key":            settings.APIKey,
-			"instruction":        settings.Instruction,
-			"product_info":       settings.ProductInfo,
-			"delay_ms":           settings.DelayMs,
-			"max_history":        settings.MaxHistory,
-			"batch_window_ms":    settings.BatchWindowMs,
-			"vision_enabled":     settings.VisionEnabled,
-			"account_ids":        settings.AccountIDs,
-			"rajaongkir_enabled": settings.RajaOngkirEnabled,
-			"rajaongkir_api_key": settings.RajaOngkirAPIKey,
-			"rajaongkir_origin":  settings.RajaOngkirOrigin,
-			"locked":             !user.CanUseAI,
+			"enabled":             settings.Enabled,
+			"api_key":             settings.APIKey,
+			"instruction":         settings.Instruction,
+			"product_info":        settings.ProductInfo,
+			"products":            products,
+			"account_product_ids": settings.AccountProductIDs,
+			"delay_ms":            settings.DelayMs,
+			"max_history":         settings.MaxHistory,
+			"batch_window_ms":     settings.BatchWindowMs,
+			"vision_enabled":      settings.VisionEnabled,
+			"account_ids":         settings.AccountIDs,
+			"rajaongkir_enabled":  settings.RajaOngkirEnabled,
+			"rajaongkir_api_key":  settings.RajaOngkirAPIKey,
+			"rajaongkir_origin":   settings.RajaOngkirOrigin,
+			"locked":              !user.CanUseAI,
 		})
 	})
 	api.Post("/ai/settings", func(c *fiber.Ctx) error {
@@ -1592,7 +2160,59 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		} else {
 			broadcastWSLog("AI auto-reply nonaktif", "info")
 		}
+		for i := range settings.Products {
+			settings.Products[i].ImageURL = aiProductImageURL(settings.Products[i].ImagePath)
+		}
 		return c.JSON(settings)
+	})
+	api.Post("/ai/products/upload", func(c *fiber.Ctx) error {
+		user, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		if !user.CanUseAI {
+			return c.Status(403).JSON(fiber.Map{"error": "Fitur InstaBlast AI dikunci untuk user ini"})
+		}
+		fileHeader, err := c.FormFile("image")
+		if err != nil || fileHeader == nil {
+			return c.Status(400).JSON(fiber.Map{"error": "File gambar wajib diisi"})
+		}
+		contentType := strings.TrimSpace(fileHeader.Header.Get("Content-Type"))
+		if contentType != "" && !strings.HasPrefix(contentType, "image/") {
+			return c.Status(400).JSON(fiber.Map{"error": "File harus berupa gambar"})
+		}
+		productDir := filepath.Join(tenantCtx.BaseDir, "ai-products")
+		if err := os.MkdirAll(productDir, os.ModePerm); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "Gagal menyiapkan folder gambar"})
+		}
+		savedName, err := issueAIProductAssetName(fileHeader.Filename)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		dst := filepath.Join(productDir, savedName)
+		if err := c.SaveFile(fileHeader, dst); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": "Gagal menyimpan gambar"})
+		}
+		return c.JSON(fiber.Map{
+			"image_path": savedName,
+			"image_url":  aiProductImageURL(savedName),
+		})
+	})
+	api.Get("/ai/products/image/:name", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		name := sanitizeAIProductAssetName(c.Params("name"))
+		if name == "" {
+			return c.Status(404).JSON(fiber.Map{"error": "Gambar tidak ditemukan"})
+		}
+		path := filepath.Join(tenantCtx.BaseDir, "ai-products", name)
+		if _, err := os.Stat(path); err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": "Gambar tidak ditemukan"})
+		}
+		c.Set("Cache-Control", "private, max-age=300")
+		return c.SendFile(path)
 	})
 	api.Get("/ai/stats", func(c *fiber.Ctx) error {
 		_, tenantCtx, err := currentTenant(c)
@@ -1661,6 +2281,220 @@ func runServer(cmd_ *cobra.Command, args []string) {
 	}
 }
 
+func buildBroadcastAIHelperPrompt(body broadcastAIHelperRequest) string {
+	variables := make([]string, 0, len(body.Variables))
+	for _, item := range body.Variables {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		variables = append(variables, "{"+strings.Trim(item, "{}")+"}")
+	}
+	variableHint := "Tidak ada variabel kontak tambahan."
+	if len(variables) > 0 {
+		variableHint = "Variabel kontak yang wajib dipertahankan apa adanya: " + strings.Join(variables, ", ")
+	}
+
+	baseRules := `Kamu adalah copywriter WhatsApp broadcast yang paham anti-spam dan deliverability.
+Bahasa wajib Indonesia natural. Jangan membuat klaim palsu, jangan hard selling berlebihan, jangan memakai terlalu banyak huruf kapital, emoji, tanda seru, atau kata pemicu spam.
+Jangan merusak URL, nomor telepon, harga, nama brand, atau placeholder variabel seperti {Nama}. Placeholder variabel tidak boleh diubah menjadi spintax.
+Balas hanya JSON valid tanpa markdown dan tanpa code fence.`
+
+	if body.Mode == "spintax" {
+		return fmt.Sprintf(`%s
+
+Tugas:
+Ubah pesan berikut menjadi versi spintax berat namun tetap natural untuk broadcast WhatsApp.
+Gunakan format spintax {opsi satu|opsi dua|opsi tiga}.
+Spin banyak bagian kalimat, sapaan, transisi, CTA, dan variasi kata, tetapi makna harus tetap sama.
+Jangan menambah informasi baru.
+%s
+
+Output JSON:
+{"spintax_message":"teks spintax final"}
+
+Pesan:
+%s`, baseRules, variableHint, body.Message)
+	}
+
+	return fmt.Sprintf(`%s
+
+Tugas:
+Analisa pesan broadcast WhatsApp berikut apakah berisiko dianggap spam.
+Berikan pendapat singkat, tingkat risiko, dan versi teks yang lebih aman serta tetap menjual.
+Teks perbaikan harus lebih natural, ramah, tidak terlalu agresif, tetap jelas CTA-nya, dan cocok untuk broadcast.
+%s
+
+Output JSON:
+{"risk_level":"rendah|sedang|tinggi","analysis":"pendapat singkat dan saran praktis","improved_message":"teks perbaikan yang lebih aman"}
+
+Pesan:
+%s`, baseRules, variableHint, body.Message)
+}
+
+func callNvidiaBroadcastAssistant(ctx context.Context, apiKey, prompt string, creative bool) (string, error) {
+	temperature := 0.65
+	if creative {
+		temperature = 1.0
+	}
+	payload := nvidiaChatRequest{
+		Model: config.WhatsappAIModel,
+		Messages: []nvidiaChatMessage{
+			{Role: "user", Content: prompt},
+		},
+		Temperature: temperature,
+		TopP:        0.95,
+		MaxTokens:   4096,
+		Stream:      true,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		content, retry, err := doNvidiaBroadcastAssistantRequest(reqCtx, apiKey, raw)
+		if err == nil {
+			return content, nil
+		}
+		lastErr = err
+		if !retry || attempt == 3 {
+			break
+		}
+		select {
+		case <-reqCtx.Done():
+			return "", reqCtx.Err()
+		case <-time.After(time.Duration(attempt) * 1500 * time.Millisecond):
+		}
+	}
+	return "", lastErr
+}
+
+func doNvidiaBroadcastAssistantRequest(ctx context.Context, apiKey string, raw []byte) (string, bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.WhatsappAIEndpoint, bytes.NewReader(raw))
+	if err != nil {
+		return "", false, err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", true, fmt.Errorf("gagal menghubungi NVIDIA AI: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(res.Body, 4*1024*1024))
+		cleanBody := strings.TrimSpace(string(body))
+		retry := res.StatusCode == http.StatusTooManyRequests || res.StatusCode >= 500
+		return "", retry, fmt.Errorf("NVIDIA AI error %d: %s", res.StatusCode, cleanNvidiaErrorBody(cleanBody))
+	}
+	contentType := strings.ToLower(res.Header.Get("Content-Type"))
+	if strings.Contains(contentType, "text/event-stream") || strings.Contains(contentType, "stream") {
+		content, err := readNvidiaStreamResponse(res.Body)
+		if err != nil {
+			return "", true, err
+		}
+		return content, false, nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 4*1024*1024))
+	var parsed nvidiaChatResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", false, fmt.Errorf("respons NVIDIA AI tidak valid: %w", err)
+	}
+	if parsed.Error != nil && strings.TrimSpace(parsed.Error.Message) != "" {
+		return "", false, fmt.Errorf("NVIDIA AI: %s", strings.TrimSpace(parsed.Error.Message))
+	}
+	if len(parsed.Choices) == 0 {
+		return "", true, fmt.Errorf("NVIDIA AI tidak mengembalikan pilihan jawaban")
+	}
+	content := strings.TrimSpace(parsed.Choices[0].Message.Content)
+	if content == "" {
+		return "", true, fmt.Errorf("NVIDIA AI mengembalikan jawaban kosong")
+	}
+	return content, false, nil
+}
+
+func readNvidiaStreamResponse(reader io.Reader) (string, error) {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var out strings.Builder
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		var chunk nvidiaChatStreamChunk
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+		if chunk.Error != nil && strings.TrimSpace(chunk.Error.Message) != "" {
+			return "", fmt.Errorf("NVIDIA AI: %s", strings.TrimSpace(chunk.Error.Message))
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		out.WriteString(chunk.Choices[0].Delta.Content)
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("gagal membaca stream NVIDIA AI: %w", err)
+	}
+	content := strings.TrimSpace(out.String())
+	if content == "" {
+		return "", fmt.Errorf("NVIDIA AI mengembalikan stream kosong")
+	}
+	return content, nil
+}
+
+func cleanNvidiaErrorBody(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "respons kosong"
+	}
+	lower := strings.ToLower(body)
+	if strings.Contains(lower, "<html") {
+		if strings.Contains(lower, "bad gateway") {
+			return "Bad Gateway dari NVIDIA, silakan coba lagi"
+		}
+		return "respons HTML dari NVIDIA, silakan coba lagi"
+	}
+	if len(body) > 500 {
+		return body[:500] + "..."
+	}
+	return body
+}
+
+func parseBroadcastAIJSON(content string) map[string]string {
+	content = strings.TrimSpace(content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	content = strings.TrimSpace(content)
+	if start := strings.Index(content, "{"); start >= 0 {
+		if end := strings.LastIndex(content, "}"); end > start {
+			content = content[start : end+1]
+		}
+	}
+	var raw map[string]interface{}
+	result := map[string]string{}
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		return result
+	}
+	for key, value := range raw {
+		result[key] = strings.TrimSpace(fmt.Sprint(value))
+	}
+	return result
+}
+
 func ensureAtLeastOneAccount(userID string) (whatsapp.AccountInfo, error) {
 	accounts := whatsapp.ListAccountsForUser(userID)
 	if len(accounts) > 0 {
@@ -1692,6 +2526,16 @@ func anyAccountConnectedAnyUser() bool {
 		}
 	}
 	return false
+}
+
+func effectiveUserMaxDevices(user storage.AppUser) int {
+	if user.IsTrial {
+		return 1
+	}
+	if user.MaxDevices <= 0 {
+		return 1
+	}
+	return user.MaxDevices
 }
 
 func currentUser(c *fiber.Ctx) (storage.AppUser, error) {
@@ -1740,6 +2584,390 @@ func normalizePhone(phone string) string {
 		phone = "62" + phone[1:]
 	}
 	return phone
+}
+
+func buildBroadcastContactRows(userID, accountID string, numbers []string, submittedRows []map[string]string) []map[string]string {
+	submittedByPhone := make(map[string]map[string]string, len(submittedRows))
+	for _, row := range submittedRows {
+		if len(row) == 0 {
+			continue
+		}
+		phone := normalizePhone(firstMapValue(row, "nomor", "phone", "wa", "whatsapp", "no", "hp", "telepon"))
+		if phone == "" {
+			continue
+		}
+		submittedByPhone[phone] = copyStringMap(row)
+	}
+
+	contacts, _ := whatsapp.GetAllContactsForUserAccount(userID, accountID)
+	verifiedNames := resolveVerifiedWANames(userID, accountID, numbers)
+
+	result := make([]map[string]string, 0, len(numbers))
+	for _, number := range numbers {
+		phone := normalizePhone(number)
+		if phone == "" {
+			continue
+		}
+		row := copyStringMap(submittedByPhone[phone])
+		if row == nil {
+			row = map[string]string{}
+		}
+		row["nomor"] = phone
+		row["phone"] = phone
+		row["wa"] = phone
+		row["whatsapp"] = phone
+
+		waName := strings.TrimSpace(firstNonEmpty(
+			resolveCachedWAName(phone, contacts),
+			verifiedNames[phone],
+		))
+		if waName == "" {
+			waName = strings.TrimSpace(firstMapValue(row, "nama", "name", "customer", "pelanggan"))
+		}
+		if waName == "" {
+			waName = phone
+		}
+		row["nama_wa"] = waName
+		row["wa_name"] = waName
+		if strings.TrimSpace(firstMapValue(row, "nama", "name")) == "" {
+			row["nama"] = waName
+			row["name"] = waName
+		}
+		result = append(result, row)
+	}
+	return result
+}
+
+func saveResolvedWANamesToContactList(store *storage.Storage, contactGroupID string, resolvedRows []map[string]string) error {
+	if store == nil || strings.TrimSpace(contactGroupID) == "" || len(resolvedRows) == 0 {
+		return nil
+	}
+	groupID, err := strconv.ParseInt(strings.TrimSpace(contactGroupID), 10, 64)
+	if err != nil || groupID <= 0 {
+		return nil
+	}
+	lists, err := store.GetContactLists()
+	if err != nil {
+		return err
+	}
+	var target *storage.ContactList
+	for i := range lists {
+		if lists[i].ID == groupID {
+			target = &lists[i]
+			break
+		}
+	}
+	if target == nil {
+		return nil
+	}
+	var contacts []map[string]string
+	_ = json.Unmarshal([]byte(target.ContactsJSON), &contacts)
+	if len(contacts) == 0 {
+		contacts = resolvedRows
+	}
+	resolvedByPhone := make(map[string]map[string]string, len(resolvedRows))
+	for _, row := range resolvedRows {
+		phone := normalizePhone(firstMapValue(row, "nomor", "phone", "wa", "whatsapp", "no", "hp", "telepon"))
+		if phone != "" {
+			resolvedByPhone[phone] = row
+		}
+	}
+	for idx, row := range contacts {
+		phone := normalizePhone(firstMapValue(row, "nomor", "phone", "wa", "whatsapp", "no", "hp", "telepon"))
+		resolved := resolvedByPhone[phone]
+		if resolved == nil {
+			continue
+		}
+		if contacts[idx] == nil {
+			contacts[idx] = map[string]string{}
+		}
+		contacts[idx]["nama_wa"] = strings.TrimSpace(resolved["nama_wa"])
+		contacts[idx]["wa_name"] = strings.TrimSpace(resolved["wa_name"])
+	}
+	columns := []string{}
+	_ = json.Unmarshal([]byte(target.ColumnsJSON), &columns)
+	columns = ensureColumns(columns, "nama_wa", "wa_name")
+	columnsJSON, _ := json.Marshal(columns)
+	contactsJSON, _ := json.Marshal(contacts)
+	return store.SaveContactList(target.Name, string(columnsJSON), string(contactsJSON), target.Numbers, target.Count)
+}
+
+func ensureColumns(columns []string, names ...string) []string {
+	seen := make(map[string]bool, len(columns)+len(names))
+	result := make([]string, 0, len(columns)+len(names))
+	for _, col := range columns {
+		col = strings.TrimSpace(col)
+		if col == "" || seen[strings.ToLower(col)] {
+			continue
+		}
+		seen[strings.ToLower(col)] = true
+		result = append(result, col)
+	}
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[strings.ToLower(name)] {
+			continue
+		}
+		seen[strings.ToLower(name)] = true
+		result = append(result, name)
+	}
+	return result
+}
+
+func resolveCachedWAName(phone string, contacts map[types.JID]types.ContactInfo) string {
+	if len(contacts) == 0 {
+		return ""
+	}
+	jid := types.NewJID(phone, types.DefaultUserServer)
+	info, ok := contacts[jid]
+	if !ok {
+		for contactJID, contactInfo := range contacts {
+			if normalizePhone(contactJID.User) == phone {
+				info = contactInfo
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok {
+		return ""
+	}
+	return firstNonEmpty(info.FullName, info.BusinessName, info.PushName, info.FirstName)
+}
+
+func resolveVerifiedWANames(userID, accountID string, numbers []string) map[string]string {
+	result := make(map[string]string)
+	if len(numbers) == 0 {
+		return result
+	}
+	checkNums := make([]string, 0, len(numbers))
+	for _, number := range numbers {
+		phone := normalizePhone(number)
+		if phone != "" {
+			checkNums = append(checkNums, "+"+phone)
+		}
+	}
+	responses, err := whatsapp.IsOnWhatsAppForUserAccount(userID, accountID, checkNums)
+	if err != nil {
+		return result
+	}
+	for _, response := range responses {
+		phone := normalizePhone(firstNonEmpty(response.JID.User, response.Query))
+		if phone == "" || response.VerifiedName == nil || response.VerifiedName.Details == nil {
+			continue
+		}
+		if name := strings.TrimSpace(response.VerifiedName.Details.GetVerifiedName()); name != "" {
+			result[phone] = name
+		}
+	}
+	return result
+}
+
+func firstMapValue(row map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(row[key]); value != "" {
+			return value
+		}
+		for actualKey, value := range row {
+			if strings.EqualFold(actualKey, key) && strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return ""
+}
+
+func copyStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	output := make(map[string]string, len(input))
+	for key, value := range input {
+		output[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	return output
+}
+
+func appendUnsubscribeInstruction(store *storage.Storage, message string) string {
+	base := strings.TrimSpace(message)
+	if store == nil {
+		return base
+	}
+	settings, err := store.GetUnsubscribeSettings()
+	if err != nil || !settings.Enabled {
+		return base
+	}
+	instruction := strings.TrimSpace(settings.Instruction)
+	if instruction == "" {
+		return base
+	}
+	if containsNormalizedText(base, instruction) {
+		return base
+	}
+	if base == "" {
+		return formatUnsubscribeFooter(instruction)
+	}
+	return base + "\n\n" + formatUnsubscribeFooter(instruction)
+}
+
+func formatUnsubscribeFooter(instruction string) string {
+	instruction = strings.TrimSpace(instruction)
+	if instruction == "" {
+		return ""
+	}
+	return "---\n_" + strings.Trim(instruction, "_") + "_"
+}
+
+func containsNormalizedText(haystack, needle string) bool {
+	haystack = normalizeTextForCompare(haystack)
+	needle = normalizeTextForCompare(needle)
+	return haystack != "" && needle != "" && strings.Contains(haystack, needle)
+}
+
+func normalizeTextForCompare(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.NewReplacer("*", "", "_", "", "~", "", "`", "", "-", "", "—", "", "\r", "\n").Replace(value)
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func loadUnsubscribePhoneSet(store *storage.Storage) (map[string]storage.UnsubscribedContact, error) {
+	result := make(map[string]storage.UnsubscribedContact)
+	if store == nil {
+		return result, nil
+	}
+	items, err := store.ListUnsubscribedContacts()
+	if err != nil {
+		return result, err
+	}
+	for _, item := range items {
+		phone := normalizePhone(item.Phone)
+		if phone == "" {
+			continue
+		}
+		item.Phone = phone
+		result[phone] = item
+	}
+	return result, nil
+}
+
+func filterNumbersAgainstUnsubscribe(numbers []string, unsubscribed map[string]storage.UnsubscribedContact) ([]string, int) {
+	if len(unsubscribed) == 0 {
+		return numbers, 0
+	}
+	filtered := make([]string, 0, len(numbers))
+	skipped := 0
+	for _, number := range numbers {
+		normalized := normalizePhone(number)
+		if normalized == "" {
+			continue
+		}
+		if _, blocked := unsubscribed[normalized]; blocked {
+			skipped++
+			continue
+		}
+		filtered = append(filtered, normalized)
+	}
+	return filtered, skipped
+}
+
+func extractPersonalRowPhone(row map[string]string) string {
+	for key, value := range row {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "nomor", "phone", "no", "whatsapp", "wa", "hp", "telepon":
+			return normalizePhone(value)
+		}
+	}
+	return ""
+}
+
+func filterPersonalRowsAgainstUnsubscribe(rows []map[string]string, unsubscribed map[string]storage.UnsubscribedContact) ([]map[string]string, int) {
+	if len(unsubscribed) == 0 {
+		return rows, 0
+	}
+	filtered := make([]map[string]string, 0, len(rows))
+	skipped := 0
+	for _, row := range rows {
+		phone := extractPersonalRowPhone(row)
+		if phone == "" {
+			continue
+		}
+		if _, blocked := unsubscribed[phone]; blocked {
+			skipped++
+			continue
+		}
+		clone := make(map[string]string, len(row))
+		for key, value := range row {
+			clone[key] = strings.TrimSpace(value)
+		}
+		for key := range clone {
+			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "nomor", "phone", "no", "whatsapp", "wa", "hp", "telepon":
+				clone[key] = phone
+			}
+		}
+		filtered = append(filtered, clone)
+	}
+	return filtered, skipped
+}
+
+func parsePersonalCSVData(raw string) ([]string, []map[string]string, error) {
+	reader := csv.NewReader(strings.NewReader(raw))
+	headers, err := reader.Read()
+	if err != nil {
+		return nil, nil, fmt.Errorf("Invalid CSV: no headers")
+	}
+	for i, h := range headers {
+		headers[i] = strings.TrimSpace(strings.ToLower(h))
+	}
+	var data []map[string]string
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			continue
+		}
+		row := make(map[string]string)
+		for i, val := range record {
+			if i < len(headers) {
+				row[headers[i]] = strings.TrimSpace(val)
+			}
+		}
+		phone := extractPersonalRowPhone(row)
+		if phone != "" {
+			for key := range row {
+				switch strings.ToLower(strings.TrimSpace(key)) {
+				case "nomor", "phone", "no", "whatsapp", "wa", "hp", "telepon":
+					row[key] = phone
+				}
+			}
+			data = append(data, row)
+		}
+	}
+	return headers, data, nil
+}
+
+func buildPersonalCSVData(headers []string, rows []map[string]string) (string, error) {
+	var builder strings.Builder
+	writer := csv.NewWriter(&builder)
+	if err := writer.Write(headers); err != nil {
+		return "", err
+	}
+	for _, row := range rows {
+		record := make([]string, len(headers))
+		for i, header := range headers {
+			record[i] = strings.TrimSpace(row[header])
+		}
+		if err := writer.Write(record); err != nil {
+			return "", err
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return "", err
+	}
+	return builder.String(), nil
 }
 
 func parseScheduleTime(raw string) (time.Time, error) {
@@ -2048,6 +3276,72 @@ func issueMetaDeletionConfirmationCode() (string, error) {
 		return "", fmt.Errorf("gagal membuat kode konfirmasi")
 	}
 	return hex.EncodeToString(token[:]), nil
+}
+
+func sanitizeAIProductAssetName(name string) string {
+	name = strings.TrimSpace(filepath.Base(name))
+	if name == "." || name == "/" || name == `\` {
+		return ""
+	}
+	if strings.Contains(name, "/") || strings.Contains(name, `\`) {
+		return ""
+	}
+	return name
+}
+
+func issueAIProductAssetName(original string) (string, error) {
+	var token [10]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return "", fmt.Errorf("gagal membuat nama gambar")
+	}
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(original)))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif":
+	default:
+		ext = ".jpg"
+	}
+	return "product-" + hex.EncodeToString(token[:]) + ext, nil
+}
+
+func aiProductImageURL(imagePath string) string {
+	imagePath = sanitizeAIProductAssetName(imagePath)
+	if imagePath == "" {
+		return ""
+	}
+	return "/api/ai/products/image/" + url.PathEscape(imagePath)
+}
+
+func sanitizeManagedAssetName(name string) string {
+	name = strings.TrimSpace(filepath.Base(name))
+	if name == "." || name == "/" || name == `\` {
+		return ""
+	}
+	if strings.Contains(name, "/") || strings.Contains(name, `\`) {
+		return ""
+	}
+	return name
+}
+
+func issueManagedFileName(original string) (string, error) {
+	var token [10]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return "", fmt.Errorf("gagal membuat nama file")
+	}
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(original)))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf", ".mp4", ".mp3", ".ogg", ".wav":
+	default:
+		ext = ".bin"
+	}
+	return "media-" + hex.EncodeToString(token[:]) + ext, nil
+}
+
+func mediaFileURL(name string) string {
+	name = sanitizeManagedAssetName(name)
+	if name == "" {
+		return ""
+	}
+	return "/api/media/files/" + url.PathEscape(name)
 }
 
 var _ = whatsmeow.MediaImage

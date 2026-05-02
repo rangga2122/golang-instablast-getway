@@ -7,45 +7,485 @@
   <link rel="icon" href="/icon.ico" sizes="any" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    :root { --bg:#e9edef; --card:#fff; --fg:#111b21; --muted:#667781; --accent:#00a884; --border:#d1d7db; }
-    * { box-sizing:border-box; }
-    body { margin:0; font-family:Inter,sans-serif; background:radial-gradient(circle at top left, rgba(0,168,132,.16), transparent 30%), var(--bg); color:var(--fg); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
-    .login-card { width:min(420px, 100%); background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:18px; padding:28px; box-shadow:0 20px 50px rgba(17,27,33,.08); }
-    .brand { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
-    .brand img { width:40px; height:40px; border-radius:10px; }
-    h1 { margin:0; font-size:28px; }
-    p { color:var(--muted); margin:8px 0 20px; }
-    label { display:block; font-size:13px; font-weight:600; margin:12px 0 6px; }
-    input { width:100%; border:1px solid var(--border); border-radius:10px; padding:12px 14px; font:inherit; }
-    button { width:100%; margin-top:18px; border:none; background:linear-gradient(135deg,#00a884,#25d366); color:#fff; padding:12px 14px; border-radius:10px; font:inherit; font-weight:700; cursor:pointer; }
-    .status { margin-top:14px; font-size:13px; min-height:20px; }
-    .hint { margin-top:16px; font-size:12px; color:var(--muted); }
+    :root {
+      --bg-soft: #edf8f0;
+      --card: rgba(255, 255, 255, 0.96);
+      --text: #101828;
+      --muted: #667085;
+      --border: rgba(16, 24, 40, 0.08);
+      --accent: #16a34a;
+      --accent-2: #10b981;
+      --accent-3: #0f766e;
+      --danger: #dc2626;
+      --success: #16a34a;
+      --shadow: 0 28px 70px rgba(15, 23, 42, 0.12);
+      --radius: 26px;
+      --radius-sm: 16px;
+      --transition: all 0.2s ease;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      min-height: 100%;
+      margin: 0;
+      font-family: 'Inter', sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(34, 197, 94, 0.14), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.12), transparent 24%),
+        linear-gradient(180deg, #ffffff 0%, var(--bg-soft) 100%);
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .login-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px 24px;
+      background: linear-gradient(90deg, #047857 0%, #10b981 55%, #22c55e 100%);
+      box-shadow: 0 10px 28px rgba(16, 185, 129, 0.18);
+    }
+
+    .topbar-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .topbar-logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      flex: 0 0 42px;
+    }
+
+    .topbar-logo img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .topbar-copy strong {
+      display: block;
+      color: #ffffff;
+      font-size: 24px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .topbar-copy span {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.18);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .login-shell {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    .login-card {
+      width: min(520px, 100%);
+      padding: 34px;
+      border-radius: var(--radius);
+      background: var(--card);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .card-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: rgba(22, 163, 74, 0.12);
+      color: #15803d;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .login-title {
+      margin: 18px 0 8px;
+      font-size: 38px;
+      line-height: 1;
+      letter-spacing: -0.06em;
+    }
+
+    .login-subtitle {
+      margin: 0 0 24px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .auth-switch {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 20px;
+      padding: 6px;
+      border-radius: 18px;
+      background: rgba(16, 24, 40, 0.05);
+    }
+
+    .auth-tab {
+      border: none;
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: transparent;
+      color: #344054;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .auth-tab.active {
+      color: #ffffff;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 52%, var(--accent-3) 100%);
+      box-shadow: 0 12px 24px rgba(16, 185, 129, 0.18);
+    }
+
+    .panel {
+      display: none;
+    }
+
+    .panel.active {
+      display: block;
+    }
+
+    .form-shell {
+      padding: 22px;
+      border-radius: 22px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fffb 100%);
+      border: 1px solid rgba(16, 24, 40, 0.06);
+    }
+
+    .form-title {
+      margin: 0 0 6px;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .form-copy {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .trial-copy {
+      margin: 0 0 18px;
+      padding: 14px 15px;
+      border-radius: 16px;
+      background: rgba(22, 163, 74, 0.08);
+      color: #166534;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .form-group + .form-group {
+      margin-top: 16px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    input {
+      width: 100%;
+      padding: 15px 16px;
+      border: 1px solid rgba(16, 24, 40, 0.1);
+      border-radius: var(--radius-sm);
+      font: inherit;
+      font-size: 15px;
+      color: var(--text);
+      background: #ffffff;
+      outline: none;
+      transition: var(--transition);
+      box-shadow: 0 8px 20px rgba(148, 163, 184, 0.06);
+    }
+
+    input:focus {
+      border-color: rgba(16, 185, 129, 0.48);
+      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.12);
+    }
+
+    input::placeholder {
+      color: #98a2b3;
+    }
+
+    .btn {
+      width: 100%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 15px 18px;
+      font: inherit;
+      font-size: 15px;
+      font-weight: 800;
+      text-decoration: none;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+
+    .btn-primary {
+      margin-top: 20px;
+      color: #ffffff;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 52%, var(--accent-3) 100%);
+      box-shadow: 0 16px 30px rgba(16, 185, 129, 0.24);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 20px 34px rgba(16, 185, 129, 0.28);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.72;
+      cursor: wait;
+      transform: none;
+    }
+
+    .btn-whatsapp {
+      margin-top: 14px;
+      color: #0f5132;
+      background: rgba(37, 211, 102, 0.12);
+      border: 1px solid rgba(37, 211, 102, 0.22);
+    }
+
+    .btn-whatsapp:hover {
+      background: rgba(37, 211, 102, 0.18);
+      transform: translateY(-1px);
+    }
+
+    .btn-icon {
+      width: 18px;
+      height: 18px;
+      display: inline-flex;
+      color: currentColor;
+      flex: 0 0 18px;
+    }
+
+    .btn-icon svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .status {
+      min-height: 22px;
+      margin-top: 14px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .status.info {
+      color: #6b7280;
+    }
+
+    .status.error {
+      color: var(--danger);
+    }
+
+    .status.success {
+      color: var(--success);
+    }
+
+    .login-footnote {
+      margin-top: 16px;
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.7;
+      text-align: center;
+    }
+
+    @media (max-width: 640px) {
+      .login-topbar {
+        padding: 16px;
+      }
+
+      .topbar-copy strong {
+        font-size: 20px;
+      }
+
+      .login-shell {
+        padding: 20px 16px;
+      }
+
+      .login-card {
+        padding: 24px 18px;
+        border-radius: 22px;
+      }
+
+      .login-title {
+        font-size: 32px;
+      }
+
+      .form-shell {
+        padding: 18px;
+        border-radius: 18px;
+      }
+    }
   </style>
 </head>
 <body>
-  <div class="login-card">
-    <div class="brand">
-      <img src="/icon.ico" alt="InstaBlast Pro" />
-      <div>
-        <h1>InstaBlast Pro</h1>
-        <div style="font-size:12px; color:#017561; font-weight:700;">Admin & User Login</div>
+  <header class="login-topbar">
+    <div class="topbar-brand">
+      <div class="topbar-logo">
+        <img src="/icon.ico" alt="InstaBlast Pro" />
+      </div>
+      <div class="topbar-copy">
+        <strong>InstaBlast Pro</strong>
+        <span>Fastblast</span>
       </div>
     </div>
-    <form id="loginForm">
-      <label>Email</label>
-      <input id="email" type="email" placeholder="contoh@email.com" required />
-      <label>Password</label>
-      <input id="password" type="password" placeholder="Masukkan password" required />
-      <button type="submit">Masuk</button>
-    </form>
-    <div class="status" id="status"></div>
-  </div>
+  </header>
+
+  <main class="login-shell">
+    <section class="login-card">
+      <div class="card-badge">Akses Dashboard</div>
+      <h1 class="login-title">Masuk atau daftar trial</h1>
+      <p class="login-subtitle">Gunakan akun yang sudah ada, atau klik tombol daftar untuk membuat akun trial 3 hari dengan AI aktif.</p>
+
+      <div class="auth-switch">
+        <button class="auth-tab active" type="button" data-mode="login">Login</button>
+        <button class="auth-tab" type="button" data-mode="trial">Daftar Trial</button>
+      </div>
+
+      <div class="panel active" id="loginPanel">
+        <div class="form-shell">
+          <h2 class="form-title">Login</h2>
+          <p class="form-copy">Masukkan email dan password untuk masuk ke panel InstaBlast Pro.</p>
+
+          <form id="loginForm">
+            <div class="form-group">
+              <label for="email">Email</label>
+              <input id="email" type="email" placeholder="contoh@email.com" required autocomplete="username" />
+            </div>
+            <div class="form-group">
+              <label for="password">Password</label>
+              <input id="password" type="password" placeholder="Masukkan password" required autocomplete="current-password" />
+            </div>
+            <button class="btn btn-primary" id="submitBtn" type="submit">Masuk</button>
+          </form>
+
+          <div class="status info" id="loginStatus"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="trialPanel">
+        <div class="form-shell">
+          <h2 class="form-title">Daftar Trial 3 Hari</h2>
+          <p class="trial-copy">Akun trial dibuat otomatis selama 3 hari. Fitur AI aktif dan akun akan langsung login setelah pendaftaran berhasil.</p>
+
+          <form id="trialForm">
+            <div class="form-group">
+              <label for="trialEmail">Email</label>
+              <input id="trialEmail" type="email" placeholder="email trial Anda" required autocomplete="email" />
+            </div>
+            <div class="form-group">
+              <label for="trialPassword">Password</label>
+              <input id="trialPassword" type="password" placeholder="Minimal 6 karakter" required autocomplete="new-password" />
+            </div>
+            <div class="form-group">
+              <label for="trialConfirmPassword">Konfirmasi Password</label>
+              <input id="trialConfirmPassword" type="password" placeholder="Ulangi password" required autocomplete="new-password" />
+            </div>
+            <button class="btn btn-primary" id="trialSubmitBtn" type="submit">Daftar Trial</button>
+          </form>
+
+          <div class="status info" id="trialStatus"></div>
+        </div>
+      </div>
+
+      <a class="btn btn-whatsapp" href="https://wa.me/6285240956744" target="_blank" rel="noopener noreferrer">
+        <span class="btn-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M12 3a8.5 8.5 0 0 0-7.4 12.7L3.5 21l5.5-1.4A8.5 8.5 0 1 0 12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+            <path d="M9 8.8c.2-.4.4-.4.7-.4h.6c.2 0 .4 0 .6.4.2.5.7 1.7.8 1.8.1.2.1.3 0 .5-.1.2-.2.3-.4.5l-.3.3c-.1.1-.2.2-.1.4.1.2.6 1 1.4 1.6.9.7 1.6.9 1.8 1 .2.1.3 0 .4-.1l.6-.7c.2-.2.3-.2.5-.1.2.1 1.5.7 1.8.8.3.1.4.2.4.4 0 .2-.1 1-.7 1.5-.5.4-1.1.5-1.5.5-.4 0-1-.1-1.9-.5-.5-.2-1.2-.5-2-1.2-.6-.5-1.1-1.1-1.5-1.7-.4-.6-.8-1.3-1.1-2-.3-.7-.4-1.3-.4-1.8 0-.5.2-.9.5-1.3.2-.3.4-.4.6-.4Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        WhatsApp Admin
+      </a>
+
+      <div class="login-footnote">
+        Jika ada kendala login atau trial, tombol WhatsApp Admin akan membuka chat langsung ke admin.
+      </div>
+    </section>
+  </main>
+
   <script>
+    const tabs = document.querySelectorAll('.auth-tab');
+    const panels = {
+      login: document.getElementById('loginPanel'),
+      trial: document.getElementById('trialPanel')
+    };
+
+    function setMode(mode) {
+      tabs.forEach(function (tab) {
+        tab.classList.toggle('active', tab.dataset.mode === mode);
+      });
+      Object.keys(panels).forEach(function (key) {
+        panels[key].classList.toggle('active', key === mode);
+      });
+    }
+
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        setMode(tab.dataset.mode);
+      });
+    });
+
+    function setStatus(id, message, type) {
+      const el = document.getElementById(id);
+      el.textContent = message || '';
+      el.className = 'status ' + (type || 'info');
+    }
+
     document.getElementById('loginForm').addEventListener('submit', async function (e) {
       e.preventDefault();
-      const status = document.getElementById('status');
-      status.textContent = 'Memproses login...';
-      status.style.color = '#667781';
+      const submitBtn = document.getElementById('submitBtn');
+
+      setStatus('loginStatus', 'Memproses login...', 'info');
+      submitBtn.disabled = true;
+
       try {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
@@ -57,10 +497,47 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Login gagal');
+        setStatus('loginStatus', 'Login berhasil, mengarahkan ke dashboard...', 'success');
         location.href = '/';
       } catch (err) {
-        status.textContent = err.message;
-        status.style.color = '#ef4444';
+        setStatus('loginStatus', err.message, 'error');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+
+    document.getElementById('trialForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const submitBtn = document.getElementById('trialSubmitBtn');
+      const password = document.getElementById('trialPassword').value;
+      const confirmPassword = document.getElementById('trialConfirmPassword').value;
+
+      if (password !== confirmPassword) {
+        setStatus('trialStatus', 'Konfirmasi password tidak cocok', 'error');
+        return;
+      }
+
+      setStatus('trialStatus', 'Membuat akun trial...', 'info');
+      submitBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/auth/register-trial', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: document.getElementById('trialEmail').value.trim(),
+            password: password,
+            confirm_password: confirmPassword
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Pendaftaran trial gagal');
+        setStatus('trialStatus', 'Akun trial berhasil dibuat, mengarahkan ke dashboard...', 'success');
+        location.href = '/';
+      } catch (err) {
+        setStatus('trialStatus', err.message, 'error');
+      } finally {
+        submitBtn.disabled = false;
       }
     });
   </script>
