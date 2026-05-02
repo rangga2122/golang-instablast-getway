@@ -58,18 +58,28 @@ type PreferenceStore interface {
 type LoggerFunc func(msg, level string)
 
 type Settings struct {
-	Enabled           bool     `json:"enabled"`
-	APIKey            string   `json:"api_key"`
-	Instruction       string   `json:"instruction"`
-	ProductInfo       string   `json:"product_info"`
-	DelayMs           int      `json:"delay_ms"`
-	MaxHistory        int      `json:"max_history"`
-	BatchWindowMs     int      `json:"batch_window_ms"`
-	VisionEnabled     bool     `json:"vision_enabled"`
-	AccountIDs        []string `json:"account_ids"`
-	RajaOngkirEnabled bool     `json:"rajaongkir_enabled"`
-	RajaOngkirAPIKey  string   `json:"rajaongkir_api_key"`
-	RajaOngkirOrigin  string   `json:"rajaongkir_origin"`
+	Enabled           bool                `json:"enabled"`
+	APIKey            string              `json:"api_key"`
+	Instruction       string              `json:"instruction"`
+	ProductInfo       string              `json:"product_info"`
+	Products          []ProductKnowledge  `json:"products"`
+	AccountProductIDs map[string][]string `json:"account_product_ids"`
+	DelayMs           int                 `json:"delay_ms"`
+	MaxHistory        int                 `json:"max_history"`
+	BatchWindowMs     int                 `json:"batch_window_ms"`
+	VisionEnabled     bool                `json:"vision_enabled"`
+	AccountIDs        []string            `json:"account_ids"`
+	RajaOngkirEnabled bool                `json:"rajaongkir_enabled"`
+	RajaOngkirAPIKey  string              `json:"rajaongkir_api_key"`
+	RajaOngkirOrigin  string              `json:"rajaongkir_origin"`
+}
+
+type ProductKnowledge struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Content   string `json:"content"`
+	ImagePath string `json:"image_path,omitempty"`
+	ImageURL  string `json:"image_url,omitempty"`
 }
 
 type Stats struct {
@@ -88,6 +98,7 @@ type chatTurn struct {
 }
 
 type pendingChat struct {
+	AccountID  string
 	ChatJID    types.JID
 	SenderJID  types.JID
 	MessageIDs []types.MessageID
@@ -183,12 +194,14 @@ func SetGlobalAPIKeyProvider(fn func() string) {
 
 func defaultSettings() Settings {
 	return mergeDesktopDefaults(Settings{
-		Enabled:       false,
-		DelayMs:       defaultDelayMs,
-		MaxHistory:    defaultMaxHistory,
-		BatchWindowMs: defaultBatchWindowMs,
-		VisionEnabled: true,
-		AccountIDs:    []string{},
+		Enabled:           false,
+		DelayMs:           defaultDelayMs,
+		MaxHistory:        defaultMaxHistory,
+		BatchWindowMs:     defaultBatchWindowMs,
+		VisionEnabled:     true,
+		AccountIDs:        []string{},
+		Products:          []ProductKnowledge{},
+		AccountProductIDs: map[string][]string{},
 	})
 }
 
@@ -198,6 +211,7 @@ func sanitizeSettings(s Settings) Settings {
 	s.ProductInfo = strings.TrimSpace(s.ProductInfo)
 	s.RajaOngkirAPIKey = strings.TrimSpace(s.RajaOngkirAPIKey)
 	s.RajaOngkirOrigin = strings.TrimSpace(s.RajaOngkirOrigin)
+	s.Products = sanitizeProducts(s.Products)
 
 	if s.DelayMs < 0 {
 		s.DelayMs = 0
@@ -230,6 +244,7 @@ func sanitizeSettings(s Settings) Settings {
 		}
 		s.AccountIDs = filtered
 	}
+	s.AccountProductIDs = sanitizeAccountProductMap(s.AccountProductIDs, s.AccountIDs, s.Products)
 	return mergeDesktopDefaults(s)
 }
 
@@ -291,7 +306,7 @@ func (s *Service) Test(ctx context.Context, prompt string) (string, error) {
 	if prompt == "" {
 		prompt = "Halo, balas singkat dalam 1 kalimat bahasa Indonesia."
 	}
-	reply, err := s.generateReply(ctx, settings, nil, prompt)
+	reply, err := s.generateReply(ctx, settings, "", nil, prompt)
 	if err != nil {
 		return "", err
 	}
@@ -355,11 +370,13 @@ func (s *Service) HandleEvent(scope string, evt *events.Message, client *whatsme
 	entry := s.pending[chatID]
 	if entry == nil {
 		entry = &pendingChat{
+			AccountID: scope,
 			ChatJID:   evt.Info.Chat,
 			SenderJID: evt.Info.Sender,
 		}
 		s.pending[chatID] = entry
 	}
+	entry.AccountID = scope
 	entry.ChatJID = evt.Info.Chat
 	entry.SenderJID = evt.Info.Sender
 	entry.MessageIDs = append(entry.MessageIDs, evt.Info.ID)
@@ -400,6 +417,7 @@ func (s *Service) processPendingChat(chatID string, client *whatsmeow.Client) {
 
 	chatJID := entry.ChatJID
 	senderJID := entry.SenderJID
+	accountID := entry.AccountID
 	messageIDs := append([]types.MessageID(nil), entry.MessageIDs...)
 	parts := append([]pendingPart(nil), entry.Parts...)
 	history := append([]chatTurn(nil), s.histories[chatID]...)
@@ -465,7 +483,7 @@ func (s *Service) processPendingChat(chatID string, client *whatsmeow.Client) {
 		return
 	}
 
-	reply, err := s.generateReply(context.Background(), settings, history, userText)
+	reply, err := s.generateReply(context.Background(), settings, accountID, history, userText)
 	if err != nil {
 		s.setFailure(err)
 		s.log(fmt.Sprintf("AI gagal membuat balasan ke %s: %v", compactChatID(chatID), err), "error")
@@ -579,13 +597,13 @@ func (s *Service) prepareUserSegment(ctx context.Context, settings Settings, par
 	return "User mengirim gambar, tetapi analisa gambar tidak tersedia. Tanyakan apa yang ingin mereka sampaikan.", "[Gambar] Analisa vision gagal"
 }
 
-func (s *Service) generateReply(ctx context.Context, settings Settings, history []chatTurn, userText string) (string, error) {
+func (s *Service) generateReply(ctx context.Context, settings Settings, accountID string, history []chatTurn, userText string) (string, error) {
 	apiKey := effectiveAPIKey(settings)
 	if apiKey == "" {
 		return "", fmt.Errorf("api key AI belum diisi")
 	}
 
-	systemPrompt := buildSystemPrompt(settings)
+	systemPrompt := buildSystemPrompt(settings, accountID)
 	messages := make([]map[string]string, 0, len(history)+2)
 	messages = append(messages, map[string]string{
 		"role":    "system",
@@ -889,7 +907,7 @@ func extractIncomingPayload(msg *waE2E.Message) (incomingPayload, bool) {
 	}
 }
 
-func buildSystemPrompt(settings Settings) string {
+func buildSystemPrompt(settings Settings, accountID string) string {
 	noFormatRule := "ATURAN FORMAT: Kamu boleh menebalkan kata atau frasa penting memakai format WhatsApp *seperti ini*. Jangan gunakan **, _, #, atau markdown lain. Bold secukupnya saja, maksimal 2-3 frasa per pesan. Gunakan tanda hubung (-) untuk daftar poin."
 	base := settings.Instruction
 	if strings.TrimSpace(base) == "" {
@@ -903,10 +921,127 @@ func buildSystemPrompt(settings Settings) string {
 		)))
 	}
 	if strings.TrimSpace(settings.ProductInfo) != "" {
-		parts = append(parts, "Info Produk:\n"+strings.TrimSpace(settings.ProductInfo))
+		parts = append(parts, "Catatan Umum AI:\n"+strings.TrimSpace(settings.ProductInfo))
+	}
+	selectedProducts := selectProductsForAccount(settings, accountID)
+	if len(selectedProducts) > 0 {
+		lines := []string{
+			"KNOWLEDGE PRODUK UNTUK AKUN INI: Gunakan hanya produk berikut sebagai acuan utama saat menjawab pertanyaan produk. Jika user bertanya produk di luar daftar ini, arahkan dengan sopan untuk cek ke admin atau CS terkait.",
+		}
+		for idx, item := range selectedProducts {
+			lines = append(lines, fmt.Sprintf("%d. %s", idx+1, strings.TrimSpace(item.Name)))
+			if strings.TrimSpace(item.Content) != "" {
+				lines = append(lines, strings.TrimSpace(item.Content))
+			}
+			if strings.TrimSpace(item.ImagePath) != "" {
+				lines = append(lines, "Produk ini memiliki gambar referensi internal di sistem.")
+			}
+		}
+		parts = append(parts, strings.Join(lines, "\n"))
+	} else if len(settings.Products) > 0 && strings.TrimSpace(accountID) != "" {
+		parts = append(parts, "KNOWLEDGE PRODUK UNTUK AKUN INI: Belum ada produk yang dipilih untuk akun CS ini. Jika user bertanya detail produk, jangan mengarang. Arahkan dengan sopan agar admin mengecek produk yang sesuai.")
 	}
 	parts = append(parts, noFormatRule)
 	return strings.Join(parts, "\n\n")
+}
+
+func sanitizeProducts(items []ProductKnowledge) []ProductKnowledge {
+	if len(items) == 0 {
+		return []ProductKnowledge{}
+	}
+	seen := make(map[string]struct{}, len(items))
+	sanitized := make([]ProductKnowledge, 0, len(items))
+	for _, item := range items {
+		item.ID = strings.TrimSpace(item.ID)
+		item.Name = strings.TrimSpace(item.Name)
+		item.Content = strings.TrimSpace(item.Content)
+		item.ImagePath = strings.TrimSpace(item.ImagePath)
+		item.ImageURL = strings.TrimSpace(item.ImageURL)
+		if item.ID == "" || item.Name == "" {
+			continue
+		}
+		if _, ok := seen[item.ID]; ok {
+			continue
+		}
+		seen[item.ID] = struct{}{}
+		sanitized = append(sanitized, item)
+	}
+	return sanitized
+}
+
+func sanitizeAccountProductMap(raw map[string][]string, accountIDs []string, products []ProductKnowledge) map[string][]string {
+	if len(raw) == 0 {
+		return map[string][]string{}
+	}
+	validAccounts := make(map[string]struct{}, len(accountIDs))
+	for _, id := range accountIDs {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			validAccounts[id] = struct{}{}
+		}
+	}
+	validProducts := make(map[string]struct{}, len(products))
+	for _, item := range products {
+		if item.ID != "" {
+			validProducts[item.ID] = struct{}{}
+		}
+	}
+	result := make(map[string][]string)
+	for accountID, ids := range raw {
+		accountID = strings.TrimSpace(accountID)
+		if accountID == "" {
+			continue
+		}
+		if len(validAccounts) > 0 {
+			if _, ok := validAccounts[accountID]; !ok {
+				continue
+			}
+		}
+		seen := map[string]struct{}{}
+		filtered := make([]string, 0, len(ids))
+		for _, id := range ids {
+			id = strings.TrimSpace(id)
+			if id == "" {
+				continue
+			}
+			if _, ok := validProducts[id]; !ok {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			filtered = append(filtered, id)
+		}
+		if len(filtered) > 0 {
+			result[accountID] = filtered
+		}
+	}
+	return result
+}
+
+func selectProductsForAccount(settings Settings, accountID string) []ProductKnowledge {
+	if len(settings.Products) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(accountID) == "" {
+		return append([]ProductKnowledge(nil), settings.Products...)
+	}
+	ids := settings.AccountProductIDs[strings.TrimSpace(accountID)]
+	if len(ids) == 0 {
+		return nil
+	}
+	lookup := make(map[string]ProductKnowledge, len(settings.Products))
+	for _, item := range settings.Products {
+		lookup[item.ID] = item
+	}
+	selected := make([]ProductKnowledge, 0, len(ids))
+	for _, id := range ids {
+		if item, ok := lookup[id]; ok {
+			selected = append(selected, item)
+		}
+	}
+	return selected
 }
 
 func (s *Service) tryAnswerRajaOngkir(ctx context.Context, settings Settings, history []chatTurn, userText string) (string, bool, error) {
@@ -1344,6 +1479,10 @@ func effectiveAPIKey(settings Settings) string {
 		return desktopAPIKey
 	}
 	return strings.TrimSpace(os.Getenv("NVIDIA_API_KEY"))
+}
+
+func ResolveAPIKey() string {
+	return effectiveAPIKey(Settings{})
 }
 
 func mergeDesktopDefaults(settings Settings) Settings {

@@ -33,40 +33,44 @@ type Result struct {
 
 // Progress represents broadcast progress
 type Progress struct {
-	OwnerID    string    `json:"owner_id"`
-	Status     Status    `json:"status"`
-	Total      int       `json:"total"`
-	Sent       int       `json:"sent"`
-	Failed     int       `json:"failed"`
-	Current    int       `json:"current"`
-	CurrentNum string    `json:"current_num"`
-	Results    []Result  `json:"results"`
-	StartedAt  time.Time `json:"started_at"`
+	OwnerID      string    `json:"owner_id"`
+	CampaignName string    `json:"campaign_name,omitempty"`
+	Status       Status    `json:"status"`
+	Total        int       `json:"total"`
+	Sent         int       `json:"sent"`
+	Failed       int       `json:"failed"`
+	Current      int       `json:"current"`
+	CurrentNum   string    `json:"current_num"`
+	Results      []Result  `json:"results"`
+	StartedAt    time.Time `json:"started_at"`
 }
 
 type MediaItem struct {
 	Data []byte `json:"-"`
 	Mime string `json:"mime"`
+	Name string `json:"name,omitempty"`
 }
 
 // Config holds broadcast configuration
 type Config struct {
-	OwnerID      string      `json:"owner_id"`
-	AccountID    string      `json:"account_id"`
-	AccountName  string      `json:"account_name"`
-	ScheduleID   int64       `json:"schedule_id"`
-	Numbers      []string    `json:"numbers"`
-	Message      string      `json:"message"`
-	UseSpintax   bool        `json:"use_spintax"`
-	ImageData    []byte      `json:"-"`
-	ImageMime    string      `json:"image_mime"`
-	Images       []MediaItem `json:"-"`
-	DelaySeconds int         `json:"delay_seconds"`
-	RandomDelay  bool        `json:"random_delay"`
-	DelayMin     int         `json:"delay_min"`
-	DelayMax     int         `json:"delay_max"`
-	BurstEvery   int         `json:"burst_every"`
-	BurstPause   int         `json:"burst_pause"`
+	OwnerID      string              `json:"owner_id"`
+	AccountID    string              `json:"account_id"`
+	AccountName  string              `json:"account_name"`
+	CampaignName string              `json:"campaign_name"`
+	ScheduleID   int64               `json:"schedule_id"`
+	Numbers      []string            `json:"numbers"`
+	ContactRows  []map[string]string `json:"contact_rows,omitempty"`
+	Message      string              `json:"message"`
+	UseSpintax   bool                `json:"use_spintax"`
+	ImageData    []byte              `json:"-"`
+	ImageMime    string              `json:"image_mime"`
+	Images       []MediaItem         `json:"-"`
+	DelaySeconds int                 `json:"delay_seconds"`
+	RandomDelay  bool                `json:"random_delay"`
+	DelayMin     int                 `json:"delay_min"`
+	DelayMax     int                 `json:"delay_max"`
+	BurstEvery   int                 `json:"burst_every"`
+	BurstPause   int                 `json:"burst_pause"`
 }
 
 // PersonalConfig holds personalized broadcast configuration
@@ -74,6 +78,7 @@ type PersonalConfig struct {
 	OwnerID      string              `json:"owner_id"`
 	AccountID    string              `json:"account_id"`
 	AccountName  string              `json:"account_name"`
+	CampaignName string              `json:"campaign_name"`
 	ScheduleID   int64               `json:"schedule_id"`
 	Data         []map[string]string `json:"data"`
 	Message      string              `json:"message"`
@@ -100,12 +105,13 @@ type Engine struct {
 }
 
 type JobMeta struct {
-	OwnerID     string
-	AccountID   string
-	AccountName string
-	Message     string
-	Type        string
-	ScheduleID  int64
+	OwnerID      string
+	AccountID    string
+	AccountName  string
+	CampaignName string
+	Message      string
+	Type         string
+	ScheduleID   int64
 }
 
 type Completion struct {
@@ -164,19 +170,21 @@ func (e *Engine) Start(cfg Config) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
 	e.current = &JobMeta{
-		OwnerID:     cfg.OwnerID,
-		AccountID:   cfg.AccountID,
-		AccountName: cfg.AccountName,
-		Message:     cfg.Message,
-		Type:        "broadcast",
-		ScheduleID:  cfg.ScheduleID,
+		OwnerID:      cfg.OwnerID,
+		AccountID:    cfg.AccountID,
+		AccountName:  cfg.AccountName,
+		CampaignName: strings.TrimSpace(cfg.CampaignName),
+		Message:      cfg.Message,
+		Type:         "broadcast",
+		ScheduleID:   cfg.ScheduleID,
 	}
 	e.progress = Progress{
-		OwnerID:   cfg.OwnerID,
-		Status:    StatusRunning,
-		Total:     len(cfg.Numbers),
-		StartedAt: time.Now(),
-		Results:   []Result{},
+		OwnerID:      cfg.OwnerID,
+		CampaignName: strings.TrimSpace(cfg.CampaignName),
+		Status:       StatusRunning,
+		Total:        len(cfg.Numbers),
+		StartedAt:    time.Now(),
+		Results:      []Result{},
 	}
 	e.mu.Unlock()
 
@@ -195,19 +203,21 @@ func (e *Engine) StartPersonal(cfg PersonalConfig) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	e.cancel = cancel
 	e.current = &JobMeta{
-		OwnerID:     cfg.OwnerID,
-		AccountID:   cfg.AccountID,
-		AccountName: cfg.AccountName,
-		Message:     cfg.Message,
-		Type:        "personalisasi",
-		ScheduleID:  cfg.ScheduleID,
+		OwnerID:      cfg.OwnerID,
+		AccountID:    cfg.AccountID,
+		AccountName:  cfg.AccountName,
+		CampaignName: strings.TrimSpace(cfg.CampaignName),
+		Message:      cfg.Message,
+		Type:         "personalisasi",
+		ScheduleID:   cfg.ScheduleID,
 	}
 	e.progress = Progress{
-		OwnerID:   cfg.OwnerID,
-		Status:    StatusRunning,
-		Total:     len(cfg.Data),
-		StartedAt: time.Now(),
-		Results:   []Result{},
+		OwnerID:      cfg.OwnerID,
+		CampaignName: strings.TrimSpace(cfg.CampaignName),
+		Status:       StatusRunning,
+		Total:        len(cfg.Data),
+		StartedAt:    time.Now(),
+		Results:      []Result{},
 	}
 	e.mu.Unlock()
 
@@ -266,6 +276,7 @@ func (e *Engine) runBroadcast(ctx context.Context, cfg Config) {
 	}()
 
 	mediaItems := normalizeMediaItems(cfg.Images, cfg.ImageData, cfg.ImageMime)
+	contactRows := contactRowsByNumber(cfg.ContactRows)
 
 	for i, number := range cfg.Numbers {
 		select {
@@ -298,6 +309,9 @@ func (e *Engine) runBroadcast(ctx context.Context, cfg Config) {
 
 		// Process message with spintax
 		msg := cfg.Message
+		if row, ok := contactRows[normalizeBroadcastPhone(number)]; ok {
+			msg = replaceBroadcastVariables(msg, row)
+		}
 		if cfg.UseSpintax {
 			msg = ProcessSpintax(msg)
 		}
@@ -428,6 +442,62 @@ func (e *Engine) runPersonalBroadcast(ctx context.Context, cfg PersonalConfig) {
 	e.log(fmt.Sprintf("âœ… Broadcast personalisasi selesai: %d terkirim, %d gagal", e.progress.Sent, e.progress.Failed), "success")
 }
 
+func contactRowsByNumber(rows []map[string]string) map[string]map[string]string {
+	result := make(map[string]map[string]string, len(rows))
+	for _, row := range rows {
+		if len(row) == 0 {
+			continue
+		}
+		number := firstRowValue(row, "nomor", "phone", "wa", "whatsapp", "no", "hp", "telepon")
+		normalized := normalizeBroadcastPhone(number)
+		if normalized == "" {
+			continue
+		}
+		result[normalized] = row
+	}
+	return result
+}
+
+func firstRowValue(row map[string]string, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(row[key]); value != "" {
+			return value
+		}
+		for actualKey, value := range row {
+			if strings.EqualFold(actualKey, key) && strings.TrimSpace(value) != "" {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return ""
+}
+
+func replaceBroadcastVariables(message string, row map[string]string) string {
+	for key, value := range row {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		message = strings.ReplaceAll(message, "{"+key+"}", value)
+		message = strings.ReplaceAll(message, "{"+strings.ToLower(key)+"}", value)
+	}
+	return message
+}
+
+func normalizeBroadcastPhone(input string) string {
+	var b strings.Builder
+	for _, r := range input {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	phone := b.String()
+	if strings.HasPrefix(phone, "08") {
+		phone = "62" + phone[1:]
+	}
+	return phone
+}
+
 func (e *Engine) calculateDelay(delaySec int, random bool, min, max int) int {
 	if random && min > 0 && max > min {
 		return min + rand.Intn(max-min+1)
@@ -473,6 +543,7 @@ func normalizeMediaItems(items []MediaItem, legacyData []byte, legacyMime string
 		result = append(result, MediaItem{
 			Data: item.Data,
 			Mime: mime,
+			Name: strings.TrimSpace(item.Name),
 		})
 	}
 	if len(result) == 0 && len(legacyData) > 0 {
@@ -493,10 +564,10 @@ func sendMediaAndMessage(ctx context.Context, ownerID, accountID string, jid typ
 	case 0:
 		return whatsapp.SendTextForUserAccount(ctx, ownerID, accountID, jid, message)
 	case 1:
-		return whatsapp.SendImageForUserAccount(ctx, ownerID, accountID, jid, mediaItems[0].Data, mediaItems[0].Mime, message)
+		return whatsapp.SendMediaForUserAccount(ctx, ownerID, accountID, jid, mediaItems[0].Data, mediaItems[0].Mime, mediaItems[0].Name, message)
 	default:
 		for _, item := range mediaItems {
-			if err := whatsapp.SendImageForUserAccount(ctx, ownerID, accountID, jid, item.Data, item.Mime, ""); err != nil {
+			if err := whatsapp.SendMediaForUserAccount(ctx, ownerID, accountID, jid, item.Data, item.Mime, item.Name, ""); err != nil {
 				return err
 			}
 		}

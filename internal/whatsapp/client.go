@@ -176,6 +176,14 @@ func RenameAccountForUser(userID, accountID, name string) error {
 	return mgr.RenameAccount(accountID, name)
 }
 
+func SetAccountWebhookForUser(userID, accountID string, enabled bool, webhookURL, secret string) (AccountInfo, error) {
+	mgr := GetManagerForUser(userID)
+	if mgr == nil {
+		return AccountInfo{}, fmt.Errorf("manager not initialized")
+	}
+	return mgr.SetAccountWebhook(accountID, enabled, webhookURL, secret)
+}
+
 func DeleteAccount(ctx context.Context, accountID string) error {
 	return DeleteAccountForUser(ctx, "", accountID)
 }
@@ -367,6 +375,67 @@ func SendImageForUserAccount(ctx context.Context, userID, accountID string, jid 
 			DirectPath:    proto.String(uploaded.DirectPath),
 			MediaKey:      uploaded.MediaKey,
 			Mimetype:      proto.String(mimetype),
+			FileEncSHA256: uploaded.FileEncSHA256,
+			FileSHA256:    uploaded.FileSHA256,
+			FileLength:    proto.Uint64(uploaded.FileLength),
+		},
+	}
+	_, err = c.SendMessage(ctx, jid, msg)
+	return err
+}
+
+func SendMediaForUserAccount(ctx context.Context, userID, accountID string, jid types.JID, mediaBytes []byte, mimetype, filename, caption string) error {
+	mimetype = strings.TrimSpace(mimetype)
+	if mimetype == "" {
+		mimetype = "application/octet-stream"
+	}
+	if strings.HasPrefix(mimetype, "image/") {
+		return SendImageForUserAccount(ctx, userID, accountID, jid, mediaBytes, mimetype, caption)
+	}
+
+	c := GetClientByAccountForUser(userID, accountID)
+	if c == nil {
+		return fmt.Errorf("client not initialized")
+	}
+
+	if strings.HasPrefix(mimetype, "video/") {
+		uploaded, err := c.Upload(ctx, mediaBytes, whatsmeow.MediaVideo)
+		if err != nil {
+			return fmt.Errorf("failed to upload video: %w", err)
+		}
+		msg := &waProto.Message{
+			VideoMessage: &waProto.VideoMessage{
+				Caption:       proto.String(caption),
+				URL:           proto.String(uploaded.URL),
+				DirectPath:    proto.String(uploaded.DirectPath),
+				MediaKey:      uploaded.MediaKey,
+				Mimetype:      proto.String(mimetype),
+				FileEncSHA256: uploaded.FileEncSHA256,
+				FileSHA256:    uploaded.FileSHA256,
+				FileLength:    proto.Uint64(uploaded.FileLength),
+			},
+		}
+		_, err = c.SendMessage(ctx, jid, msg)
+		return err
+	}
+
+	uploaded, err := c.Upload(ctx, mediaBytes, whatsmeow.MediaDocument)
+	if err != nil {
+		return fmt.Errorf("failed to upload document: %w", err)
+	}
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		filename = "dokumen"
+	}
+	msg := &waProto.Message{
+		DocumentMessage: &waProto.DocumentMessage{
+			Caption:       proto.String(caption),
+			URL:           proto.String(uploaded.URL),
+			DirectPath:    proto.String(uploaded.DirectPath),
+			MediaKey:      uploaded.MediaKey,
+			Mimetype:      proto.String(mimetype),
+			FileName:      proto.String(filename),
+			Title:         proto.String(filename),
 			FileEncSHA256: uploaded.FileEncSHA256,
 			FileSHA256:    uploaded.FileSHA256,
 			FileLength:    proto.Uint64(uploaded.FileLength),

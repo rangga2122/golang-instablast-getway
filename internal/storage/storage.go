@@ -34,6 +34,45 @@ type ContactGroup struct {
 	Numbers string `json:"numbers"`
 }
 
+type ContactList struct {
+	ID           int64     `json:"id"`
+	Name         string    `json:"name"`
+	ColumnsJSON  string    `json:"columns_json"`
+	ContactsJSON string    `json:"contacts_json"`
+	Numbers      string    `json:"numbers"`
+	Count        int       `json:"count"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type MediaFile struct {
+	ID           int64     `json:"id"`
+	Name         string    `json:"name"`
+	OriginalName string    `json:"original_name"`
+	Mime         string    `json:"mime"`
+	Size         int64     `json:"size"`
+	Path         string    `json:"path"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type UnsubscribeSettings struct {
+	Enabled     bool   `json:"enabled"`
+	Keyword     string `json:"keyword"`
+	Instruction string `json:"instruction"`
+	AutoReply   string `json:"auto_reply"`
+}
+
+type UnsubscribedContact struct {
+	ID                int64     `json:"id"`
+	Phone             string    `json:"phone"`
+	Name              string    `json:"name"`
+	Keyword           string    `json:"keyword"`
+	SourceAccountID   string    `json:"source_account_id"`
+	SourceAccountName string    `json:"source_account_name"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
 // MessageTemplate represents a saved message template
 type MessageTemplate struct {
 	ID      int64  `json:"id"`
@@ -146,6 +185,25 @@ func (s *Storage) initSchema() {
 			name TEXT NOT NULL UNIQUE,
 			numbers TEXT NOT NULL DEFAULT ''
 		)`,
+		`CREATE TABLE IF NOT EXISTS contact_lists (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			columns_json TEXT NOT NULL DEFAULT '[]',
+			contacts_json TEXT NOT NULL DEFAULT '[]',
+			numbers TEXT NOT NULL DEFAULT '',
+			count INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS media_files (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			original_name TEXT NOT NULL DEFAULT '',
+			mime TEXT NOT NULL DEFAULT '',
+			size INTEGER NOT NULL DEFAULT 0,
+			path TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS message_templates (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			name TEXT NOT NULL,
@@ -155,6 +213,16 @@ func (s *Storage) initSchema() {
 		`CREATE TABLE IF NOT EXISTS preferences (
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL DEFAULT ''
+		)`,
+		`CREATE TABLE IF NOT EXISTS unsubscribed_contacts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			phone TEXT NOT NULL UNIQUE,
+			name TEXT NOT NULL DEFAULT '',
+			keyword TEXT NOT NULL DEFAULT 'STOP',
+			source_account_id TEXT NOT NULL DEFAULT '',
+			source_account_name TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS chat_history (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -224,6 +292,7 @@ func (s *Storage) initSchema() {
 	_, _ = s.db.Exec(`ALTER TABLE broadcast_schedules ADD COLUMN schedule_type TEXT NOT NULL DEFAULT 'broadcast'`)
 	_, _ = s.db.Exec(`ALTER TABLE broadcast_schedules ADD COLUMN csv_data TEXT NOT NULL DEFAULT ''`)
 	_, _ = s.db.Exec(`ALTER TABLE broadcast_schedules ADD COLUMN images_json TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.db.Exec(`ALTER TABLE contact_lists ADD COLUMN updated_at DATETIME`)
 }
 
 // === Chat History ===
@@ -580,6 +649,101 @@ func (s *Storage) DeleteContactGroup(name string) error {
 	return err
 }
 
+// === Contact Lists ===
+
+func (s *Storage) GetContactLists() ([]ContactList, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	rows, err := s.db.Query(`SELECT id, name, columns_json, contacts_json, numbers, count FROM contact_lists ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var lists []ContactList
+	for rows.Next() {
+		var item ContactList
+		if err := rows.Scan(&item.ID, &item.Name, &item.ColumnsJSON, &item.ContactsJSON, &item.Numbers, &item.Count); err != nil {
+			continue
+		}
+		lists = append(lists, item)
+	}
+	return lists, nil
+}
+
+func (s *Storage) SaveContactList(name, columnsJSON, contactsJSON, numbers string, count int) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	_, err := s.db.Exec(
+		`INSERT INTO contact_lists (name, columns_json, contacts_json, numbers, count, updated_at)
+		VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(name) DO UPDATE SET
+			columns_json = excluded.columns_json,
+			contacts_json = excluded.contacts_json,
+			numbers = excluded.numbers,
+			count = excluded.count,
+			updated_at = CURRENT_TIMESTAMP`,
+		name, columnsJSON, contactsJSON, numbers, count,
+	)
+	return err
+}
+
+func (s *Storage) DeleteContactList(id int64) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	_, err := s.db.Exec(`DELETE FROM contact_lists WHERE id = ?`, id)
+	return err
+}
+
+// === Media Files ===
+
+func (s *Storage) GetMediaFiles() ([]MediaFile, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	rows, err := s.db.Query(`SELECT id, name, original_name, mime, size, path, created_at FROM media_files ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []MediaFile
+	for rows.Next() {
+		var item MediaFile
+		var createdAt sql.NullString
+		if err := rows.Scan(&item.ID, &item.Name, &item.OriginalName, &item.Mime, &item.Size, &item.Path, &createdAt); err != nil {
+			continue
+		}
+		item.CreatedAt = parseSQLiteTime(createdAt.String)
+		files = append(files, item)
+	}
+	return files, nil
+}
+
+func (s *Storage) SaveMediaFile(file MediaFile) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	_, err := s.db.Exec(
+		`INSERT INTO media_files (name, original_name, mime, size, path) VALUES (?, ?, ?, ?, ?)`,
+		file.Name, file.OriginalName, file.Mime, file.Size, file.Path,
+	)
+	return err
+}
+
+func (s *Storage) DeleteMediaFile(id int64) (MediaFile, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	var item MediaFile
+	err := s.db.QueryRow(`SELECT id, name, original_name, mime, size, path, created_at FROM media_files WHERE id = ?`, id).
+		Scan(&item.ID, &item.Name, &item.OriginalName, &item.Mime, &item.Size, &item.Path, &item.CreatedAt)
+	if err != nil {
+		return item, err
+	}
+	_, err = s.db.Exec(`DELETE FROM media_files WHERE id = ?`, id)
+	return item, err
+}
+
 // === Message Templates ===
 
 func (s *Storage) GetTemplates(templateType string) ([]MessageTemplate, error) {
@@ -657,6 +821,116 @@ func (s *Storage) SetPrefJSON(key string, value interface{}) error {
 		return err
 	}
 	return s.SetPref(key, string(data))
+}
+
+// === Unsubscribe ===
+
+const unsubscribeSettingsPrefKey = "unsubscribe_settings"
+
+func DefaultUnsubscribeSettings() UnsubscribeSettings {
+	return UnsubscribeSettings{
+		Enabled:     false,
+		Keyword:     "STOP",
+		Instruction: "Ketik STOP untuk berhenti menerima pesan dari kami.",
+		AutoReply:   "Baik, nomor Anda sudah kami masukkan ke daftar berhenti berlangganan. Kami tidak akan mengirimkan pesan broadcast lagi.",
+	}
+}
+
+func (s *Storage) GetUnsubscribeSettings() (UnsubscribeSettings, error) {
+	settings := DefaultUnsubscribeSettings()
+	if err := s.GetPrefJSON(unsubscribeSettingsPrefKey, &settings); err != nil {
+		return settings, err
+	}
+	settings.Keyword = strings.ToUpper(strings.TrimSpace(settings.Keyword))
+	if settings.Keyword == "" {
+		settings.Keyword = "STOP"
+	}
+	settings.Instruction = strings.TrimSpace(settings.Instruction)
+	if settings.Instruction == "" {
+		settings.Instruction = DefaultUnsubscribeSettings().Instruction
+	}
+	settings.AutoReply = strings.TrimSpace(settings.AutoReply)
+	if settings.AutoReply == "" {
+		settings.AutoReply = DefaultUnsubscribeSettings().AutoReply
+	}
+	return settings, nil
+}
+
+func (s *Storage) SaveUnsubscribeSettings(settings UnsubscribeSettings) error {
+	settings.Keyword = strings.ToUpper(strings.TrimSpace(settings.Keyword))
+	if settings.Keyword == "" {
+		settings.Keyword = "STOP"
+	}
+	settings.Instruction = strings.TrimSpace(settings.Instruction)
+	if settings.Instruction == "" {
+		settings.Instruction = DefaultUnsubscribeSettings().Instruction
+	}
+	settings.AutoReply = strings.TrimSpace(settings.AutoReply)
+	if settings.AutoReply == "" {
+		settings.AutoReply = DefaultUnsubscribeSettings().AutoReply
+	}
+	return s.SetPrefJSON(unsubscribeSettingsPrefKey, settings)
+}
+
+func (s *Storage) ListUnsubscribedContacts() ([]UnsubscribedContact, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	rows, err := s.db.Query(`SELECT id, phone, name, keyword, source_account_id, source_account_name, created_at, updated_at FROM unsubscribed_contacts ORDER BY updated_at DESC, id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []UnsubscribedContact
+	for rows.Next() {
+		var item UnsubscribedContact
+		var createdAt sql.NullString
+		var updatedAt sql.NullString
+		if err := rows.Scan(&item.ID, &item.Phone, &item.Name, &item.Keyword, &item.SourceAccountID, &item.SourceAccountName, &createdAt, &updatedAt); err != nil {
+			continue
+		}
+		item.CreatedAt = parseSQLiteTime(createdAt.String)
+		item.UpdatedAt = parseSQLiteTime(updatedAt.String)
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (s *Storage) SaveUnsubscribedContact(phone, name, keyword, accountID, accountName string) error {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return nil
+	}
+	keyword = strings.ToUpper(strings.TrimSpace(keyword))
+	if keyword == "" {
+		keyword = "STOP"
+	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	_, err := s.db.Exec(
+		`INSERT INTO unsubscribed_contacts (phone, name, keyword, source_account_id, source_account_name, updated_at)
+		 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(phone) DO UPDATE SET
+		 	name = excluded.name,
+		 	keyword = excluded.keyword,
+		 	source_account_id = excluded.source_account_id,
+		 	source_account_name = excluded.source_account_name,
+		 	updated_at = CURRENT_TIMESTAMP`,
+		phone,
+		strings.TrimSpace(name),
+		keyword,
+		strings.TrimSpace(accountID),
+		strings.TrimSpace(accountName),
+	)
+	return err
+}
+
+func (s *Storage) DeleteUnsubscribedContact(id int64) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	_, err := s.db.Exec(`DELETE FROM unsubscribed_contacts WHERE id = ?`, id)
+	return err
 }
 
 // === Meta WABA Accounts ===
@@ -748,6 +1022,30 @@ func nullableTime(t time.Time) interface{} {
 		return nil
 	}
 	return t
+}
+
+func parseSQLiteTime(raw string) time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}
+	}
+
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05.999999999",
+		"2006-01-02T15:04:05",
+	}
+	for _, layout := range layouts {
+		if ts, err := time.Parse(layout, raw); err == nil {
+			return ts
+		}
+	}
+	return time.Time{}
 }
 
 // Close closes the database

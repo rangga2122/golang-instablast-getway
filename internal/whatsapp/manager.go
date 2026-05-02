@@ -30,23 +30,29 @@ type PreferenceStore interface {
 type SessionEventHandler func(accountID string, evt interface{}, client *whatsmeow.Client)
 
 type AccountMeta struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	JID       string    `json:"jid"`
-	CreatedAt time.Time `json:"created_at"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	JID            string    `json:"jid"`
+	CreatedAt      time.Time `json:"created_at"`
+	WebhookEnabled bool      `json:"webhook_enabled"`
+	WebhookURL     string    `json:"webhook_url"`
+	WebhookSecret  string    `json:"webhook_secret,omitempty"`
 }
 
 type AccountInfo struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	JID       string    `json:"jid"`
-	Connected bool      `json:"connected"`
-	LoggedIn  bool      `json:"logged_in"`
-	Active    bool      `json:"active"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	IsPending bool      `json:"is_pending"`
-	Phone     string    `json:"phone"`
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	JID            string    `json:"jid"`
+	Connected      bool      `json:"connected"`
+	LoggedIn       bool      `json:"logged_in"`
+	Active         bool      `json:"active"`
+	Status         string    `json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
+	IsPending      bool      `json:"is_pending"`
+	Phone          string    `json:"phone"`
+	WebhookEnabled bool      `json:"webhook_enabled"`
+	WebhookURL     string    `json:"webhook_url"`
+	WebhookSecret  string    `json:"webhook_secret,omitempty"`
 }
 
 type Session struct {
@@ -269,6 +275,26 @@ func (m *Manager) RenameAccount(accountID, name string) error {
 	return nil
 }
 
+func (m *Manager) SetAccountWebhook(accountID string, enabled bool, webhookURL, secret string) (AccountInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	session, ok := m.sessions[accountID]
+	if !ok {
+		return AccountInfo{}, fmt.Errorf("account not found")
+	}
+
+	session.meta.WebhookEnabled = enabled
+	session.meta.WebhookURL = strings.TrimSpace(webhookURL)
+	session.meta.WebhookSecret = strings.TrimSpace(secret)
+	if session.meta.WebhookURL == "" {
+		session.meta.WebhookEnabled = false
+	}
+
+	m.saveStateLocked()
+	return m.accountInfoLocked(session), nil
+}
+
 func (m *Manager) DeleteAccount(ctx context.Context, accountID string) error {
 	m.mu.Lock()
 	session, ok := m.sessions[accountID]
@@ -400,13 +426,16 @@ func (m *Manager) resolveLocked(accountID string) string {
 
 func (m *Manager) accountInfoLocked(session *Session) AccountInfo {
 	info := AccountInfo{
-		ID:        session.meta.ID,
-		Name:      session.meta.Name,
-		JID:       session.meta.JID,
-		CreatedAt: session.meta.CreatedAt,
-		Active:    session.meta.ID == m.activeID,
-		IsPending: session.meta.JID == "",
-		Status:    "Belum login",
+		ID:             session.meta.ID,
+		Name:           session.meta.Name,
+		JID:            session.meta.JID,
+		CreatedAt:      session.meta.CreatedAt,
+		Active:         session.meta.ID == m.activeID,
+		IsPending:      session.meta.JID == "",
+		Status:         "Belum login",
+		WebhookEnabled: session.meta.WebhookEnabled,
+		WebhookURL:     session.meta.WebhookURL,
+		WebhookSecret:  session.meta.WebhookSecret,
 	}
 	if session.client != nil {
 		info.Connected = session.client.IsConnected()

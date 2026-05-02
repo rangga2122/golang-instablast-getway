@@ -124,13 +124,20 @@ func (s *Scheduler) startSchedule(rec storage.BroadcastSchedule) error {
 		if err != nil {
 			return err
 		}
+		settings, _ := s.store.GetUnsubscribeSettings()
+		unsubscribed, _ := s.store.ListUnsubscribedContacts()
+		data = filterPersonalRowsForScheduler(data, unsubscribed)
+		if len(data) == 0 {
+			return fmt.Errorf("semua nomor pada jadwal personalisasi sudah unsubscribe")
+		}
 		cfg := PersonalConfig{
 			OwnerID:      s.userID,
 			AccountID:    rec.AccountID,
 			AccountName:  rec.AccountName,
+			CampaignName: scheduleLabel(rec),
 			ScheduleID:   rec.ID,
 			Data:         data,
-			Message:      rec.Message,
+			Message:      appendSchedulerUnsubscribeInstruction(rec.Message, settings),
 			UseSpintax:   rec.UseSpintax,
 			DelaySeconds: rec.DelaySeconds,
 			RandomDelay:  rec.RandomDelay,
@@ -151,16 +158,20 @@ func (s *Scheduler) startSchedule(rec storage.BroadcastSchedule) error {
 	}
 
 	numbers := ParseNumbers(rec.Numbers)
+	unsubscribed, _ := s.store.ListUnsubscribedContacts()
+	numbers = filterNumbersForScheduler(numbers, unsubscribed)
 	if len(numbers) == 0 {
-		return fmt.Errorf("jadwal tidak memiliki nomor valid")
+		return fmt.Errorf("jadwal tidak memiliki nomor valid setelah filter unsubscribe")
 	}
+	settings, _ := s.store.GetUnsubscribeSettings()
 	cfg := Config{
 		OwnerID:      s.userID,
 		AccountID:    rec.AccountID,
 		AccountName:  rec.AccountName,
+		CampaignName: scheduleLabel(rec),
 		ScheduleID:   rec.ID,
 		Numbers:      numbers,
-		Message:      rec.Message,
+		Message:      appendSchedulerUnsubscribeInstruction(rec.Message, settings),
 		UseSpintax:   rec.UseSpintax,
 		DelaySeconds: rec.DelaySeconds,
 		RandomDelay:  rec.RandomDelay,
@@ -205,10 +216,14 @@ func parsePersonalScheduleCSV(raw string) ([]map[string]string, error) {
 				row[headers[i]] = strings.TrimSpace(val)
 			}
 		}
-		if num, ok := row["nomor"]; ok {
-			row["nomor"] = normalizePhone(num)
-		}
-		if row["nomor"] != "" {
+		phone := extractPersonalRowPhone(row)
+		if phone != "" {
+			for key := range row {
+				switch strings.ToLower(strings.TrimSpace(key)) {
+				case "nomor", "phone", "no", "whatsapp", "wa", "hp", "telepon":
+					row[key] = phone
+				}
+			}
 			data = append(data, row)
 		}
 	}
@@ -233,9 +248,98 @@ func normalizePhone(input string) string {
 	return b.String()
 }
 
+func appendSchedulerUnsubscribeInstruction(message string, settings storage.UnsubscribeSettings) string {
+	base := strings.TrimSpace(message)
+	if !settings.Enabled {
+		return base
+	}
+	instruction := strings.TrimSpace(settings.Instruction)
+	if instruction == "" {
+		return base
+	}
+	if strings.Contains(strings.ToLower(base), strings.ToLower(instruction)) {
+		return base
+	}
+	if base == "" {
+		return instruction
+	}
+	return base + "\n\n" + instruction
+}
+
+func filterNumbersForScheduler(numbers []string, unsubscribed []storage.UnsubscribedContact) []string {
+	if len(unsubscribed) == 0 {
+		return numbers
+	}
+	blocked := make(map[string]struct{}, len(unsubscribed))
+	for _, item := range unsubscribed {
+		phone := normalizePhone(item.Phone)
+		if phone != "" {
+			blocked[phone] = struct{}{}
+		}
+	}
+	filtered := make([]string, 0, len(numbers))
+	for _, number := range numbers {
+		normalized := normalizePhone(number)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := blocked[normalized]; exists {
+			continue
+		}
+		filtered = append(filtered, normalized)
+	}
+	return filtered
+}
+
+func filterPersonalRowsForScheduler(rows []map[string]string, unsubscribed []storage.UnsubscribedContact) []map[string]string {
+	if len(unsubscribed) == 0 {
+		return rows
+	}
+	blocked := make(map[string]struct{}, len(unsubscribed))
+	for _, item := range unsubscribed {
+		phone := normalizePhone(item.Phone)
+		if phone != "" {
+			blocked[phone] = struct{}{}
+		}
+	}
+	filtered := make([]map[string]string, 0, len(rows))
+	for _, row := range rows {
+		phone := extractPersonalRowPhone(row)
+		if phone == "" {
+			continue
+		}
+		if _, exists := blocked[phone]; exists {
+			continue
+		}
+		clone := make(map[string]string, len(row))
+		for key, value := range row {
+			clone[key] = value
+		}
+		for key := range clone {
+			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "nomor", "phone", "no", "whatsapp", "wa", "hp", "telepon":
+				clone[key] = phone
+			}
+		}
+		filtered = append(filtered, clone)
+	}
+	return filtered
+}
+
+func extractPersonalRowPhone(row map[string]string) string {
+	for key, value := range row {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "nomor", "phone", "no", "whatsapp", "wa", "hp", "telepon":
+			return normalizePhone(value)
+		}
+	}
+	return ""
+}
+
 type scheduledImagePayload struct {
 	Data string `json:"data"`
 	Mime string `json:"mime"`
+	Name string `json:"name,omitempty"`
 }
 
 func decodeScheduledImages(rawJSON, legacyB64, legacyMime string) ([]MediaItem, error) {
@@ -273,7 +377,7 @@ func decodeScheduledImages(rawJSON, legacyB64, legacyMime string) ([]MediaItem, 
 		if mime == "" {
 			mime = "image/jpeg"
 		}
-		result = append(result, MediaItem{Data: img, Mime: mime})
+		result = append(result, MediaItem{Data: img, Mime: mime, Name: strings.TrimSpace(payload.Name)})
 	}
 	return result, nil
 }
