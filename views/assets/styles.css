@@ -3054,10 +3054,6 @@ td {
   color: #14b8a6;
 }
 
-.nav-item[data-tab="settings"] .nav-icon {
-  color: #6366f1;
-}
-
 .nav-item[data-tab="admin"] .nav-icon {
   color: #f97316;
 }
@@ -3103,10 +3099,6 @@ td {
   color: #0f766e;
 }
 
-.nav-item.active[data-tab="settings"] .nav-icon {
-  color: #4f46e5;
-}
-
 .nav-item.active[data-tab="admin"] .nav-icon {
   color: #ea580c;
 }
@@ -3134,8 +3126,19 @@ td {
 }
 
 @media (max-width: 980px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
   .topbar {
     left: 0;
+    right: 0;
+    height: 72px;
+    min-height: 72px;
+    padding: 10px 14px;
+    gap: 10px;
   }
 
   .topbar-left .mobile-menu-btn {
@@ -3148,16 +3151,38 @@ td {
 
   .sidebar {
     position: fixed;
-    transform: translateX(-102%);
+    inset: 0 auto 0 0;
+    width: min(286px, calc(100vw - 42px));
+    min-width: 0;
+    height: 100vh;
+    padding: 22px 14px 18px;
+    transform: translateX(-105%);
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
   }
 
   body.sidebar-open .sidebar {
     transform: translateX(0);
   }
 
+  .sidebar-backdrop {
+    inset: 0;
+    z-index: 125;
+    transition: opacity 0.22s ease;
+  }
+
+  .app-layout {
+    height: 100vh;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
   .main-content {
     margin-left: 0;
-    padding-top: 96px;
+    height: 100vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 96px 18px 30px;
   }
 
   .stats-grid {
@@ -3166,7 +3191,76 @@ td {
 }
 
 @media (max-width: 560px) {
+  .topbar {
+    height: 64px;
+    min-height: 64px;
+    padding: 8px 12px;
+  }
+
+  .topbar-right {
+    gap: 8px;
+    max-width: none;
+    margin-left: auto;
+  }
+
+  .topbar-btn {
+    min-height: 36px;
+    padding: 8px 12px;
+  }
+
+  .main-content {
+    padding: 84px 14px 24px;
+  }
+
+  .page-title {
+    font-size: 24px;
+  }
+
   .stats-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ===== Final typography and mobile polish ===== */
+*,
+*::before,
+*::after,
+button,
+input,
+textarea,
+select {
+  font-family: 'Inter', sans-serif !important;
+}
+
+@media (max-width: 768px) {
+  .card,
+  .wa-hero-card,
+  .stat-card,
+  .contact-list-card,
+  .media-card,
+  .account-card,
+  .api-docs-item,
+  .api-docs-card {
+    border-radius: 16px !important;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+  .nav-item {
+    min-height: 46px;
+    font-size: 15.5px;
+  }
+
+  .two-column,
+  .tools-grid,
+  .dashboard-user-grid,
+  .api-docs-grid,
+  .blast-delay-grid,
+  .blast-composer-layout,
+  .ai-account-knowledge-matrix,
+  .account-summary-panel {
+    grid-template-columns: 1fr !important;
   }
 }
