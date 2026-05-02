@@ -14,6 +14,7 @@ import (
 	"github.com/azkazamdigital/wa-gateway/internal/broadcast"
 	"github.com/azkazamdigital/wa-gateway/internal/chathistory"
 	"github.com/azkazamdigital/wa-gateway/internal/storage"
+	webhookpkg "github.com/azkazamdigital/wa-gateway/internal/webhook"
 	"github.com/azkazamdigital/wa-gateway/internal/whatsapp"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
@@ -21,6 +22,7 @@ import (
 
 type Tenant struct {
 	User        storage.AppUser
+	BaseDir     string
 	Store       *storage.Storage
 	AI          *ai.Service
 	ChatHistory *chathistory.Service
@@ -71,6 +73,7 @@ func (m *Manager) Get(user storage.AppUser) (*Tenant, error) {
 
 	tenantCtx := &Tenant{
 		User:        user,
+		BaseDir:     dir,
 		Store:       store,
 		AI:          aiSvc,
 		ChatHistory: chatSvc,
@@ -124,10 +127,35 @@ func (m *Manager) Get(user storage.AppUser) (*Tenant, error) {
 		}
 		switch v := evt.(type) {
 		case *events.Message:
-			if tenantCtx.User.CanUseAI {
+			isUnsubscribeKeyword, unsubscribeSettings := tenantCtx.ChatHistory.HandleUnsubscribeMessage(accountID, account.Name, v)
+			if isUnsubscribeKeyword {
+				reply := strings.TrimSpace(unsubscribeSettings.AutoReply)
+				if reply != "" {
+					go func() {
+						ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+						defer cancel()
+						if err := whatsapp.SendTextForUserAccount(ctx, user.ID, accountID, v.Info.Chat, reply); err != nil && m.logFn != nil {
+							m.logFn(fmt.Sprintf("Gagal kirim balasan unsubscribe ke %s: %v", v.Info.Chat.User, err), "warning")
+						}
+					}()
+				}
+				if m.logFn != nil {
+					m.logFn(fmt.Sprintf("unsubscribe_updated:%s", v.Info.Chat.User), "unsubscribe")
+				}
+			}
+			if tenantCtx.User.CanUseAI && !isUnsubscribeKeyword {
 				tenantCtx.AI.HandleEvent(accountID, v, client)
 			}
 			tenantCtx.ChatHistory.HandleMessage(accountID, account.Name, v)
+			if account.WebhookEnabled && account.WebhookURL != "" {
+				go func(user storage.AppUser, account whatsapp.AccountInfo, evt *events.Message) {
+					ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+					defer cancel()
+					if err := webhookpkg.DeliverMessage(ctx, user, account, evt); err != nil && m.logFn != nil {
+						m.logFn(fmt.Sprintf("Webhook %s gagal: %v", account.Name, err), "warning")
+					}
+				}(tenantCtx.User, account, v)
+			}
 		case *events.HistorySync:
 			tenantCtx.ChatHistory.HandleHistorySync(accountID, account.Name, v.Data)
 		}

@@ -63,6 +63,11 @@ type metaPhoneNumbersResponse struct {
 	Data []metaPhoneNumberInfo `json:"data"`
 }
 
+type metaGenericNode struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 func newMetaGraphClient(cfg metaConfig) *metaGraphClient {
 	version := strings.TrimSpace(cfg.GraphVersion)
 	if version == "" {
@@ -117,6 +122,17 @@ func (c *metaGraphClient) GetBusiness(ctx context.Context, businessID, accessTok
 	var out metaBusinessInfo
 	if err := c.doJSON(ctx, http.MethodGet, "/"+strings.TrimSpace(businessID), values, accessToken, &out); err != nil {
 		return metaBusinessInfo{}, err
+	}
+	return out, nil
+}
+
+func (c *metaGraphClient) GetWABA(ctx context.Context, wabaID, accessToken string) (metaGenericNode, error) {
+	values := url.Values{}
+	values.Set("fields", "id,name")
+
+	var out metaGenericNode
+	if err := c.doJSON(ctx, http.MethodGet, "/"+strings.TrimSpace(wabaID), values, accessToken, &out); err != nil {
+		return metaGenericNode{}, err
 	}
 	return out, nil
 }
@@ -372,6 +388,95 @@ func finalizeMetaSignup(ctx context.Context, tenantStore *storage.Storage, cfg m
 		account.TokenExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
 	}
 
+	if err := tenantStore.SaveMetaWABAAccount(account); err != nil {
+		return nil, warnings, err
+	}
+	return account, warnings, nil
+}
+
+func finalizeMetaManualConnect(ctx context.Context, tenantStore *storage.Storage, cfg metaConfig, accessToken, wabaID, accountName string) (*storage.MetaWABAAccount, []string, error) {
+	if tenantStore == nil {
+		return nil, nil, fmt.Errorf("tenant storage belum siap")
+	}
+	accessToken = strings.TrimSpace(accessToken)
+	wabaID = strings.TrimSpace(wabaID)
+	accountName = strings.TrimSpace(accountName)
+	if accessToken == "" {
+		return nil, nil, fmt.Errorf("access token wajib diisi")
+	}
+	if wabaID == "" {
+		return nil, nil, fmt.Errorf("WABA ID wajib diisi")
+	}
+
+	client := newMetaGraphClient(metaConfig{
+		AppSecret:    cfg.AppSecret,
+		GraphVersion: firstNonEmpty(cfg.GraphVersion, metaGraphDefaultAPIVerion),
+	})
+	warnings := make([]string, 0, 2)
+
+	var wabaNode metaGenericNode
+	if node, err := client.GetWABA(ctx, wabaID, accessToken); err == nil {
+		wabaNode = node
+	} else {
+		warnings = append(warnings, "nama WABA belum bisa diambil: "+err.Error())
+	}
+
+	phones, err := client.ListPhoneNumbers(ctx, wabaID, accessToken)
+	if err != nil {
+		return nil, warnings, err
+	}
+
+	var phoneInfo metaPhoneNumberInfo
+	if len(phones) > 0 {
+		phoneInfo = phones[len(phones)-1]
+		if singlePhone, phoneErr := client.GetPhoneNumber(ctx, phoneInfo.ID, accessToken); phoneErr == nil {
+			phoneInfo = singlePhone
+		} else {
+			warnings = append(warnings, "detail nomor belum lengkap: "+phoneErr.Error())
+		}
+	}
+
+	displayPhone := strings.TrimSpace(phoneInfo.DisplayPhoneNumber)
+	phoneNumberID := strings.TrimSpace(phoneInfo.ID)
+	accountName = firstNonEmpty(
+		accountName,
+		strings.TrimSpace(wabaNode.Name),
+		strings.TrimSpace(phoneInfo.VerifiedName),
+		displayPhone,
+		"WABA Manual",
+	)
+
+	status := "active"
+	onboardingStatus := "manual_connected"
+	if phoneNumberID == "" {
+		status = "pending_setup"
+		onboardingStatus = "manual_connected_without_phone"
+	} else if strings.TrimSpace(phoneInfo.Status) != "" && !strings.EqualFold(phoneInfo.Status, "CONNECTED") {
+		status = "pending_setup"
+		onboardingStatus = "number_status_" + strings.ToLower(strings.TrimSpace(phoneInfo.Status))
+	} else if strings.TrimSpace(phoneInfo.CodeVerificationStatus) != "" && !strings.EqualFold(phoneInfo.CodeVerificationStatus, "VERIFIED") {
+		status = "pending_setup"
+		onboardingStatus = "code_verification_" + strings.ToLower(strings.TrimSpace(phoneInfo.CodeVerificationStatus))
+	}
+
+	if subscribeErr := client.SubscribeApp(ctx, wabaID, accessToken); subscribeErr != nil {
+		warnings = append(warnings, "webhook WABA belum berhasil disubscribe: "+subscribeErr.Error())
+		if onboardingStatus == "manual_connected" {
+			onboardingStatus = "manual_connected_with_webhook_warning"
+		}
+	}
+
+	account := &storage.MetaWABAAccount{
+		Name:               accountName,
+		BusinessID:         strings.TrimSpace(wabaNode.ID),
+		WABAID:             wabaID,
+		PhoneNumberID:      phoneNumberID,
+		DisplayPhoneNumber: displayPhone,
+		Status:             status,
+		OnboardingStatus:   onboardingStatus,
+		AccessToken:        accessToken,
+		TokenType:          "manual_access_token",
+	}
 	if err := tenantStore.SaveMetaWABAAccount(account); err != nil {
 		return nil, warnings, err
 	}

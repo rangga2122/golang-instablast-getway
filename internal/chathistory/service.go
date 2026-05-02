@@ -50,6 +50,43 @@ func (s *Service) HandleMessage(accountID, accountName string, evt *events.Messa
 	})
 }
 
+func (s *Service) HandleUnsubscribeMessage(accountID, accountName string, evt *events.Message) (bool, storage.UnsubscribeSettings) {
+	settings := storage.DefaultUnsubscribeSettings()
+	if s == nil || s.store == nil || evt == nil {
+		return false, settings
+	}
+	if evt.Info.IsFromMe {
+		return false, settings
+	}
+
+	chat := evt.Info.Chat
+	chatID := chat.String()
+	if chatTypeFromJID(chatID) != "direct" {
+		return false, settings
+	}
+
+	settings, err := s.store.GetUnsubscribeSettings()
+	if err != nil || !settings.Enabled {
+		return false, settings
+	}
+
+	text, ok := extractMessageText(evt.Message)
+	if !ok {
+		return false, settings
+	}
+	if strings.ToUpper(strings.TrimSpace(text)) != settings.Keyword {
+		return false, settings
+	}
+
+	name := strings.TrimSpace(evt.Info.PushName)
+	phone := normalizePhone(phoneFromMessageInfo(evt.Info))
+	if phone == "" {
+		return false, settings
+	}
+	_ = s.store.SaveUnsubscribedContact(phone, name, settings.Keyword, accountID, accountName)
+	return true, settings
+}
+
 func (s *Service) HandleHistorySync(accountID, accountName string, data *waHistorySync.HistorySync) {
 	if s == nil || s.store == nil || data == nil {
 		return
@@ -180,16 +217,29 @@ func phoneFromChatJID(chatID string) string {
 }
 
 func phoneFromMessageInfo(info types.MessageInfo) string {
-	if info.Chat.User != "" {
-		return info.Chat.User
+	for _, jid := range []types.JID{
+		info.Sender,
+		info.SenderAlt,
+		info.Chat,
+		info.RecipientAlt,
+	} {
+		if phone := phoneFromPhoneJID(jid); phone != "" {
+			return phone
+		}
 	}
-	if info.Sender.User != "" {
-		return info.Sender.User
+	for _, jid := range []types.JID{info.Sender, info.SenderAlt, info.Chat, info.RecipientAlt} {
+		if jid.User != "" {
+			return jid.User
+		}
 	}
-	if info.SourceString() != "" {
-		return phoneFromChatJID(info.SourceString())
+	return phoneFromChatJID(info.SourceString())
+}
+
+func phoneFromPhoneJID(jid types.JID) string {
+	if jid.User == "" || jid.Server != types.DefaultUserServer {
+		return ""
 	}
-	return ""
+	return jid.User
 }
 
 func firstNonEmpty(values ...string) string {
@@ -199,4 +249,22 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizePhone(input string) string {
+	input = strings.TrimSpace(strings.TrimPrefix(input, "+"))
+	if input == "" {
+		return ""
+	}
+	input = strings.NewReplacer(" ", "", "-", "", "(", "", ")", "", ".", "").Replace(input)
+	if strings.HasPrefix(input, "08") {
+		input = "62" + input[1:]
+	}
+	var b strings.Builder
+	for _, ch := range input {
+		if ch >= '0' && ch <= '9' {
+			b.WriteRune(ch)
+		}
+	}
+	return b.String()
 }
