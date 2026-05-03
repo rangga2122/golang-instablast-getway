@@ -260,7 +260,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 
 	app.Use(func(c *fiber.Ctx) error {
 		path := c.Path()
-		if strings.HasPrefix(path, "/assets") || path == "/" || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/privacy-policy" || path == "/terms-of-service" || path == "/data-deletion" || path == "/data-deletion-status" || path == "/api/auth/login" || path == "/api/auth/register-trial" || path == "/api/auth/trial/request-otp" || path == "/api/auth/trial/verify-otp" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" || path == "/api/meta/data-deletion" {
+		if strings.HasPrefix(path, "/assets") || path == "/" || path == "/panduan" || path == "/docs" || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/privacy-policy" || path == "/terms-of-service" || path == "/data-deletion" || path == "/data-deletion-status" || path == "/api/auth/login" || path == "/api/auth/register-trial" || path == "/api/auth/trial/request-otp" || path == "/api/auth/trial/verify-otp" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" || path == "/api/meta/data-deletion" {
 			return c.Next()
 		}
 		if AuthService == nil {
@@ -287,6 +287,20 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		data, err := EmbedViews.ReadFile("views/landing.html")
 		if err != nil {
 			return c.Status(500).SendString("Failed to load landing page")
+		}
+		c.Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Set("Pragma", "no-cache")
+		c.Set("Expires", "0")
+		c.Set("Content-Type", "text/html")
+		return c.Send(data)
+	})
+	app.Get("/docs", func(c *fiber.Ctx) error {
+		return c.Redirect("/panduan", fiber.StatusMovedPermanently)
+	})
+	app.Get("/panduan", func(c *fiber.Ctx) error {
+		data, err := EmbedViews.ReadFile("views/panduan.html")
+		if err != nil {
+			return c.Status(500).SendString("Failed to load guide page")
 		}
 		c.Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 		c.Set("Pragma", "no-cache")

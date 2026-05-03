@@ -3067,6 +3067,10 @@ td {
   color: #14b8a6;
 }
 
+.nav-item[data-tab="guide"] .nav-icon {
+  color: #0ea5e9;
+}
+
 .nav-item[data-tab="admin"] .nav-icon {
   color: #f97316;
 }
@@ -3110,6 +3114,10 @@ td {
 
 .nav-item.active[data-tab="api-docs"] .nav-icon {
   color: #0f766e;
+}
+
+.nav-item.active[data-tab="guide"] .nav-icon {
+  color: #0369a1;
 }
 
 .nav-item.active[data-tab="admin"] .nav-icon {

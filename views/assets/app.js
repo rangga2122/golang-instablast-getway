@@ -1017,6 +1017,11 @@ function switchTab(tab) {
   closeSidebar();
 }
 
+function openGuidePage() {
+  closeSidebar();
+  window.location.href = '/panduan';
+}
+
 // ===== WebSocket =====
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
