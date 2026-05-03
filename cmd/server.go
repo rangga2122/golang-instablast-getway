@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -169,6 +170,76 @@ func broadcastWSProgress() {
 	}
 }
 
+func trialSignupClientIP(c *fiber.Ctx) string {
+	if c == nil {
+		return ""
+	}
+	ip := strings.TrimSpace(c.IP())
+	if ip != "" {
+		return ip
+	}
+	forwarded := strings.TrimSpace(c.Get("X-Forwarded-For"))
+	if forwarded != "" {
+		if idx := strings.Index(forwarded, ","); idx >= 0 {
+			forwarded = forwarded[:idx]
+		}
+		return strings.TrimSpace(forwarded)
+	}
+	return strings.TrimSpace(c.Get("X-Real-IP"))
+}
+
+func trialSignupDomain(email string) string {
+	at := strings.LastIndex(strings.TrimSpace(strings.ToLower(email)), "@")
+	if at < 0 {
+		return ""
+	}
+	return strings.TrimSpace(strings.ToLower(email[at+1:]))
+}
+
+func isTrialBlockedEmailDomain(domain string) bool {
+	domain = strings.TrimSpace(strings.ToLower(domain))
+	if domain == "" {
+		return false
+	}
+	for _, item := range strings.Split(config.TrialBlockedEmailDomains, ",") {
+		if strings.TrimSpace(strings.ToLower(item)) == domain {
+			return true
+		}
+	}
+	return false
+}
+
+func isTrialSignupTooFast(formStartedAt int64) bool {
+	if config.TrialSignupMinFormSeconds <= 0 || formStartedAt <= 0 {
+		return false
+	}
+	startedAt := time.UnixMilli(formStartedAt)
+	if startedAt.IsZero() {
+		return false
+	}
+	return time.Since(startedAt) < time.Duration(config.TrialSignupMinFormSeconds)*time.Second
+}
+
+func recordTrialSignupAttempt(email, ip, userAgent string, succeeded bool, reason string) {
+	if Store == nil {
+		return
+	}
+	if err := Store.RecordTrialSignupAttempt(email, ip, userAgent, succeeded, reason); err != nil {
+		logrus.WithError(err).Warn("failed to record trial signup attempt")
+	}
+}
+
+func maskPhoneNumber(phone string) string {
+	phone = normalizePhone(phone)
+	if len(phone) <= 4 {
+		return phone
+	}
+	if len(phone) <= 8 {
+		return phone[:2] + strings.Repeat("*", len(phone)-4) + phone[len(phone)-2:]
+	}
+	return phone[:4] + strings.Repeat("*", len(phone)-7) + phone[len(phone)-3:]
+}
+
 func runServer(cmd_ *cobra.Command, args []string) {
 	initApp()
 
@@ -189,7 +260,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 
 	app.Use(func(c *fiber.Ctx) error {
 		path := c.Path()
-		if strings.HasPrefix(path, "/assets") || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/privacy-policy" || path == "/terms-of-service" || path == "/data-deletion" || path == "/data-deletion-status" || path == "/api/auth/login" || path == "/api/auth/register-trial" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" || path == "/api/meta/data-deletion" {
+		if strings.HasPrefix(path, "/assets") || path == "/" || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/privacy-policy" || path == "/terms-of-service" || path == "/data-deletion" || path == "/data-deletion-status" || path == "/api/auth/login" || path == "/api/auth/register-trial" || path == "/api/auth/trial/request-otp" || path == "/api/auth/trial/verify-otp" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" || path == "/api/meta/data-deletion" {
 			return c.Next()
 		}
 		if AuthService == nil {
@@ -213,6 +284,18 @@ func runServer(cmd_ *cobra.Command, args []string) {
 	})
 
 	app.Get("/", func(c *fiber.Ctx) error {
+		data, err := EmbedViews.ReadFile("views/landing.html")
+		if err != nil {
+			return c.Status(500).SendString("Failed to load landing page")
+		}
+		c.Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Set("Pragma", "no-cache")
+		c.Set("Expires", "0")
+		c.Set("Content-Type", "text/html")
+		return c.Send(data)
+	})
+
+	app.Get("/app", func(c *fiber.Ctx) error {
 		data, err := EmbedViews.ReadFile("views/index.html")
 		if err != nil {
 			return c.Status(500).SendString("Failed to load UI")
@@ -226,7 +309,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 	app.Get("/login", func(c *fiber.Ctx) error {
 		if AuthService != nil {
 			if _, _, err := AuthService.GetUserByToken(c.Cookies(auth.SessionCookieName)); err == nil {
-				return c.Redirect("/")
+				return c.Redirect("/app")
 			}
 		}
 		data, err := EmbedViews.ReadFile("views/login.html")
@@ -407,33 +490,396 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			},
 		})
 	})
+	api.Post("/auth/trial/request-otp", func(c *fiber.Ctx) error {
+		var body struct {
+			Email           string `json:"email"`
+			Password        string `json:"password"`
+			ConfirmPassword string `json:"confirm_password"`
+			Phone           string `json:"phone"`
+			Website         string `json:"website"`
+			FormStartedAt   int64  `json:"form_started_at"`
+		}
+		clientIP := trialSignupClientIP(c)
+		userAgent := strings.TrimSpace(c.Get("User-Agent"))
+		if err := c.BodyParser(&body); err != nil {
+			recordTrialSignupAttempt("", clientIP, userAgent, false, "invalid_body")
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+
+		otpCfg := loadTrialOTPAdminConfig()
+		if !otpCfg.Enabled {
+			recordTrialSignupAttempt(strings.TrimSpace(body.Email), clientIP, userAgent, false, "otp_disabled")
+			return c.Status(503).JSON(fiber.Map{"error": "Verifikasi OTP trial sedang dimatikan oleh admin"})
+		}
+
+		email := strings.TrimSpace(strings.ToLower(body.Email))
+		password := body.Password
+		confirmPassword := body.ConfirmPassword
+		phone := normalizePhone(body.Phone)
+
+		if config.TrialSignupMaxAttemptsPerIP > 0 && config.TrialSignupWindowMinutes > 0 && clientIP != "" {
+			attempts, err := Store.CountRecentTrialSignupAttemptsByIP(clientIP, time.Now().Add(-time.Duration(config.TrialSignupWindowMinutes)*time.Minute))
+			if err != nil {
+				logrus.WithError(err).Warn("failed to count recent trial signup attempts")
+			} else if attempts >= config.TrialSignupMaxAttemptsPerIP {
+				recordTrialSignupAttempt(email, clientIP, userAgent, false, "rate_limit_attempts")
+				return c.Status(429).JSON(fiber.Map{"error": "Terlalu banyak percobaan trial dari jaringan ini. Coba lagi beberapa saat lagi atau hubungi admin."})
+			}
+		}
+		if strings.TrimSpace(body.Website) != "" {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "honeypot")
+			return c.Status(400).JSON(fiber.Map{"error": "Permintaan trial tidak valid"})
+		}
+		if isTrialSignupTooFast(body.FormStartedAt) {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "submitted_too_fast")
+			return c.Status(400).JSON(fiber.Map{"error": "Form trial dikirim terlalu cepat. Coba ulangi sebentar lagi."})
+		}
+		if email == "" {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "missing_email")
+			return c.Status(400).JSON(fiber.Map{"error": "Email wajib diisi"})
+		}
+		if _, err := mail.ParseAddress(email); err != nil {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "invalid_email")
+			return c.Status(400).JSON(fiber.Map{"error": "Format email tidak valid"})
+		}
+		if isTrialBlockedEmailDomain(trialSignupDomain(email)) {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "blocked_email_domain")
+			return c.Status(400).JSON(fiber.Map{"error": "Domain email ini tidak bisa dipakai untuk trial. Gunakan email utama Anda atau hubungi admin."})
+		}
+		if len(strings.TrimSpace(password)) < 6 {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "password_too_short")
+			return c.Status(400).JSON(fiber.Map{"error": "Password minimal 6 karakter"})
+		}
+		if password != confirmPassword {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "password_mismatch")
+			return c.Status(400).JSON(fiber.Map{"error": "Konfirmasi password tidak cocok"})
+		}
+		if phone == "" || len(phone) < 10 {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "invalid_phone")
+			return c.Status(400).JSON(fiber.Map{"error": "Nomor WhatsApp wajib valid"})
+		}
+		if config.TrialActiveDays <= 0 {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "invalid_trial_config")
+			return c.Status(500).JSON(fiber.Map{"error": "Konfigurasi trial tidak valid di server"})
+		}
+		if config.TrialSignupMaxSuccessPerIP > 0 && config.TrialSignupSuccessWindowDays > 0 && clientIP != "" {
+			successCount, err := Store.CountRecentSuccessfulTrialSignupsByIP(clientIP, time.Now().Add(-time.Duration(config.TrialSignupSuccessWindowDays)*24*time.Hour))
+			if err != nil {
+				logrus.WithError(err).Warn("failed to count recent successful trial signups")
+			} else if successCount >= config.TrialSignupMaxSuccessPerIP {
+				recordTrialSignupAttempt(email, clientIP, userAgent, false, "ip_trial_limit_reached")
+				return c.Status(429).JSON(fiber.Map{"error": "Trial gratis dari jaringan ini sudah pernah digunakan. Jika butuh akses, silakan hubungi admin."})
+			}
+		}
+		if _, err := Store.GetUserByEmail(email); err == nil {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "email_exists")
+			return c.Status(400).JSON(fiber.Map{"error": "Email sudah terdaftar"})
+		}
+		if usedByPhone, err := Store.CountUsedTrialOTPSessionsByPhone(phone); err == nil && usedByPhone > 0 {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "phone_already_used")
+			return c.Status(429).JSON(fiber.Map{"error": "Nomor WhatsApp ini sudah pernah dipakai untuk trial. Silakan hubungi admin jika butuh akses."})
+		}
+
+		account, err := ensureTrialOTPVerifierAccount()
+		if err != nil {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "otp_verifier_unavailable")
+			return c.Status(503).JSON(fiber.Map{"error": "Akun WhatsApp verifikasi OTP belum siap. Silakan hubungi admin."})
+		}
+		if !whatsapp.IsClientConnectedForAccountForUser(trialOTPSystemUserID, account.ID) {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "otp_verifier_offline")
+			return c.Status(503).JSON(fiber.Map{"error": "Akun WhatsApp verifikasi OTP belum online. Silakan hubungi admin."})
+		}
+
+		results, err := whatsapp.IsOnWhatsAppForUserAccount(trialOTPSystemUserID, account.ID, []string{"+" + phone})
+		if err != nil {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "otp_phone_validation_failed")
+			return c.Status(502).JSON(fiber.Map{"error": "Gagal memvalidasi nomor WhatsApp. Coba lagi sebentar."})
+		}
+		if len(results) == 0 || !results[0].IsIn {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "phone_not_on_whatsapp")
+			return c.Status(400).JSON(fiber.Map{"error": "Nomor WhatsApp tidak valid atau belum terdaftar di WhatsApp"})
+		}
+
+		if err := Store.InvalidatePendingTrialOTPSessions(email, phone); err != nil {
+			logrus.WithError(err).Warn("failed to invalidate pending otp sessions")
+		}
+
+		sessionID, err := newTrialOTPSessionID()
+		if err != nil {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "otp_session_failed")
+			return c.Status(500).JSON(fiber.Map{"error": "Gagal membuat sesi OTP"})
+		}
+		otpCode, err := newTrialOTPCode()
+		if err != nil {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "otp_code_failed")
+			return c.Status(500).JSON(fiber.Map{"error": "Gagal membuat kode OTP"})
+		}
+
+		expiresAt := trialOTPExpiry(otpCfg.TTLMinutes)
+		if err := Store.CreateTrialOTPSession(storage.TrialOTPSession{
+			SessionID:     sessionID,
+			Email:         email,
+			PlainPassword: password,
+			Phone:         phone,
+			OTPCode:       otpCode,
+			Status:        "pending",
+			Attempts:      0,
+			IPAddress:     clientIP,
+			UserAgent:     userAgent,
+			ExpiresAt:     expiresAt,
+		}); err != nil {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "otp_session_store_failed")
+			return c.Status(500).JSON(fiber.Map{"error": "Gagal menyimpan sesi OTP"})
+		}
+
+		otpMessage := renderTrialOTPTemplate(otpCfg.MessageTemplate, map[string]string{
+			"code":      otpCode,
+			"minutes":   fmt.Sprintf("%d", otpCfg.TTLMinutes),
+			"email":     email,
+			"phone":     phone,
+			"login_url": strings.TrimRight(c.BaseURL(), "/") + "/login",
+		})
+		if strings.TrimSpace(otpMessage) == "" {
+			otpMessage = renderTrialOTPTemplate(defaultTrialOTPMessageTemplate(), map[string]string{
+				"code":      otpCode,
+				"minutes":   fmt.Sprintf("%d", otpCfg.TTLMinutes),
+				"email":     email,
+				"phone":     phone,
+				"login_url": strings.TrimRight(c.BaseURL(), "/") + "/login",
+			})
+		}
+		if err := whatsapp.SendTextForUserAccount(c.UserContext(), trialOTPSystemUserID, account.ID, parsePhoneToJID(phone), otpMessage); err != nil {
+			_ = Store.MarkTrialOTPSessionFailed(sessionID)
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "otp_send_failed")
+			return c.Status(502).JSON(fiber.Map{"error": "Gagal mengirim OTP ke WhatsApp. Pastikan nomor valid lalu coba lagi."})
+		}
+
+		recordTrialSignupAttempt(email, clientIP, userAgent, false, "otp_sent")
+		return c.JSON(fiber.Map{
+			"status":        "otp_sent",
+			"session_id":    sessionID,
+			"expires_at":    expiresAt,
+			"ttl_minutes":   otpCfg.TTLMinutes,
+			"phone_masked":  maskPhoneNumber(phone),
+			"trial_days":    config.TrialActiveDays,
+			"otp_required":  true,
+			"login_message": "Kode OTP telah dikirim ke WhatsApp Anda",
+		})
+	})
+	api.Post("/auth/trial/verify-otp", func(c *fiber.Ctx) error {
+		var body struct {
+			SessionID string `json:"session_id"`
+			OTPCode   string `json:"otp_code"`
+		}
+		clientIP := trialSignupClientIP(c)
+		userAgent := strings.TrimSpace(c.Get("User-Agent"))
+		if err := c.BodyParser(&body); err != nil {
+			recordTrialSignupAttempt("", clientIP, userAgent, false, "invalid_verify_body")
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+
+		sessionID := strings.TrimSpace(body.SessionID)
+		otpCode := strings.TrimSpace(body.OTPCode)
+		if sessionID == "" || otpCode == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Session OTP dan kode OTP wajib diisi"})
+		}
+
+		otpSession, err := Store.GetTrialOTPSession(sessionID)
+		if err != nil {
+			recordTrialSignupAttempt("", clientIP, userAgent, false, "otp_session_not_found")
+			return c.Status(404).JSON(fiber.Map{"error": "Sesi OTP tidak ditemukan. Ulangi daftar trial."})
+		}
+		if otpSession.Status == "used" {
+			return c.Status(400).JSON(fiber.Map{"error": "OTP ini sudah dipakai. Silakan login atau ulangi daftar trial."})
+		}
+		if otpSession.Status == "expired" || otpSession.ExpiresAt.Before(time.Now()) {
+			_ = Store.MarkTrialOTPSessionExpired(sessionID)
+			recordTrialSignupAttempt(otpSession.Email, otpSession.IPAddress, otpSession.UserAgent, false, "otp_expired")
+			return c.Status(400).JSON(fiber.Map{"error": "Kode OTP sudah kedaluwarsa. Minta OTP baru lagi."})
+		}
+		if otpSession.Status == "failed" || otpSession.Status == "replaced" {
+			return c.Status(400).JSON(fiber.Map{"error": "Sesi OTP ini sudah tidak aktif. Minta OTP baru lagi."})
+		}
+		maxVerifyAttempts := config.TrialOTPMaxVerifyAttempts
+		if maxVerifyAttempts <= 0 {
+			maxVerifyAttempts = 5
+		}
+		if otpSession.Attempts >= maxVerifyAttempts {
+			_ = Store.MarkTrialOTPSessionFailed(sessionID)
+			recordTrialSignupAttempt(otpSession.Email, otpSession.IPAddress, otpSession.UserAgent, false, "otp_attempts_exceeded")
+			return c.Status(429).JSON(fiber.Map{"error": "Percobaan OTP terlalu banyak. Minta OTP baru lagi."})
+		}
+		if otpSession.OTPCode != otpCode {
+			_ = Store.IncrementTrialOTPSessionAttempts(sessionID)
+			if otpSession.Attempts+1 >= maxVerifyAttempts {
+				_ = Store.MarkTrialOTPSessionFailed(sessionID)
+			}
+			recordTrialSignupAttempt(otpSession.Email, otpSession.IPAddress, otpSession.UserAgent, false, "otp_invalid")
+			return c.Status(400).JSON(fiber.Map{"error": "Kode OTP salah"})
+		}
+		if _, err := Store.GetUserByEmail(otpSession.Email); err == nil {
+			_ = Store.MarkTrialOTPSessionFailed(sessionID)
+			recordTrialSignupAttempt(otpSession.Email, otpSession.IPAddress, otpSession.UserAgent, false, "email_exists_on_verify")
+			return c.Status(400).JSON(fiber.Map{"error": "Email sudah terdaftar. Silakan login."})
+		}
+		if usedByPhone, err := Store.CountUsedTrialOTPSessionsByPhone(otpSession.Phone); err == nil && usedByPhone > 0 {
+			_ = Store.MarkTrialOTPSessionFailed(sessionID)
+			recordTrialSignupAttempt(otpSession.Email, otpSession.IPAddress, otpSession.UserAgent, false, "phone_already_used_on_verify")
+			return c.Status(429).JSON(fiber.Map{"error": "Nomor WhatsApp ini sudah pernah dipakai untuk trial."})
+		}
+		if config.TrialSignupMaxSuccessPerIP > 0 && config.TrialSignupSuccessWindowDays > 0 && otpSession.IPAddress != "" {
+			successCount, err := Store.CountRecentSuccessfulTrialSignupsByIP(otpSession.IPAddress, time.Now().Add(-time.Duration(config.TrialSignupSuccessWindowDays)*24*time.Hour))
+			if err != nil {
+				logrus.WithError(err).Warn("failed to count recent successful trial signups on verify")
+			} else if successCount >= config.TrialSignupMaxSuccessPerIP {
+				recordTrialSignupAttempt(otpSession.Email, otpSession.IPAddress, otpSession.UserAgent, false, "ip_trial_limit_reached_on_verify")
+				return c.Status(429).JSON(fiber.Map{"error": "Trial gratis dari jaringan ini sudah pernah digunakan. Jika butuh akses, silakan hubungi admin."})
+			}
+		}
+
+		plainPassword := otpSession.PlainPassword
+		expiresAt := time.Now().Add(time.Duration(config.TrialActiveDays) * 24 * time.Hour)
+		createdUser, err := Store.CreateUser(storage.CreateUserInput{
+			Email:      otpSession.Email,
+			Password:   plainPassword,
+			IsAdmin:    false,
+			IsTrial:    true,
+			CanUseAI:   true,
+			MaxDevices: config.TrialMaxDevices,
+			ExpiresAt:  expiresAt,
+		})
+		if err != nil {
+			recordTrialSignupAttempt(otpSession.Email, otpSession.IPAddress, otpSession.UserAgent, false, "create_user_failed_on_verify")
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		_ = Store.MarkTrialOTPSessionVerified(sessionID)
+
+		if account, err := ensureTrialOTPVerifierAccount(); err == nil && whatsapp.IsClientConnectedForAccountForUser(trialOTPSystemUserID, account.ID) {
+			successMessage := renderTrialOTPTemplate(loadTrialOTPAdminConfig().SuccessTemplate, map[string]string{
+				"email":      otpSession.Email,
+				"password":   plainPassword,
+				"phone":      otpSession.Phone,
+				"login_url":  strings.TrimRight(c.BaseURL(), "/") + "/login",
+				"trial_days": fmt.Sprintf("%d", config.TrialActiveDays),
+			})
+			if strings.TrimSpace(successMessage) != "" {
+				if err := whatsapp.SendTextForUserAccount(c.UserContext(), trialOTPSystemUserID, account.ID, parsePhoneToJID(otpSession.Phone), successMessage); err != nil {
+					logrus.WithError(err).Warn("failed to send trial otp success message")
+				}
+			}
+		}
+
+		user, session, err := AuthService.Login(otpSession.Email, plainPassword)
+		if err != nil {
+			logrus.WithField("email", otpSession.Email).Errorf("failed to auto-login new otp trial user: %v", err)
+			_ = Store.MarkTrialOTPSessionUsed(sessionID)
+			recordTrialSignupAttempt(otpSession.Email, otpSession.IPAddress, otpSession.UserAgent, true, "trial_created_via_otp_login_failed")
+			return c.Status(500).JSON(fiber.Map{"error": "Akun trial berhasil dibuat, tetapi login otomatis gagal. Silakan login manual."})
+		}
+		_ = Store.MarkTrialOTPSessionUsed(sessionID)
+		recordTrialSignupAttempt(otpSession.Email, otpSession.IPAddress, otpSession.UserAgent, true, "trial_created_via_otp")
+
+		c.Cookie(&fiber.Cookie{
+			Name:     auth.SessionCookieName,
+			Value:    session.Token,
+			HTTPOnly: true,
+			SameSite: "Lax",
+			Path:     "/",
+			Expires:  session.ExpiresAt,
+		})
+		return c.JSON(fiber.Map{
+			"user": fiber.Map{
+				"id":          user.ID,
+				"email":       user.Email,
+				"is_admin":    user.IsAdmin,
+				"is_trial":    user.IsTrial,
+				"can_use_ai":  user.CanUseAI,
+				"max_devices": effectiveUserMaxDevices(user),
+				"expires_at":  user.ExpiresAt,
+				"trial_days":  config.TrialActiveDays,
+			},
+			"trial_login": fiber.Map{
+				"email":     createdUser.Email,
+				"password":  plainPassword,
+				"login_url": strings.TrimRight(c.BaseURL(), "/") + "/login",
+			},
+		})
+	})
 	api.Post("/auth/register-trial", func(c *fiber.Ctx) error {
 		var body struct {
 			Email           string `json:"email"`
 			Password        string `json:"password"`
 			ConfirmPassword string `json:"confirm_password"`
+			Website         string `json:"website"`
+			FormStartedAt   int64  `json:"form_started_at"`
 		}
+		clientIP := trialSignupClientIP(c)
+		userAgent := strings.TrimSpace(c.Get("User-Agent"))
 		if err := c.BodyParser(&body); err != nil {
+			recordTrialSignupAttempt("", clientIP, userAgent, false, "invalid_body")
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+		if loadTrialOTPAdminConfig().Enabled {
+			recordTrialSignupAttempt(strings.TrimSpace(body.Email), clientIP, userAgent, false, "otp_required")
+			return c.Status(400).JSON(fiber.Map{"error": "Trial sekarang wajib verifikasi OTP WhatsApp. Silakan gunakan alur OTP di form trial."})
 		}
 
 		email := strings.TrimSpace(strings.ToLower(body.Email))
 		password := body.Password
 		confirmPassword := body.ConfirmPassword
 
+		if config.TrialSignupMaxAttemptsPerIP > 0 && config.TrialSignupWindowMinutes > 0 && clientIP != "" {
+			attempts, err := Store.CountRecentTrialSignupAttemptsByIP(clientIP, time.Now().Add(-time.Duration(config.TrialSignupWindowMinutes)*time.Minute))
+			if err != nil {
+				logrus.WithError(err).Warn("failed to count recent trial signup attempts")
+			} else if attempts >= config.TrialSignupMaxAttemptsPerIP {
+				recordTrialSignupAttempt(email, clientIP, userAgent, false, "rate_limit_attempts")
+				return c.Status(429).JSON(fiber.Map{"error": "Terlalu banyak percobaan trial dari jaringan ini. Coba lagi beberapa saat lagi atau hubungi admin."})
+			}
+		}
+		if strings.TrimSpace(body.Website) != "" {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "honeypot")
+			return c.Status(400).JSON(fiber.Map{"error": "Permintaan trial tidak valid"})
+		}
+		if isTrialSignupTooFast(body.FormStartedAt) {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "submitted_too_fast")
+			return c.Status(400).JSON(fiber.Map{"error": "Form trial dikirim terlalu cepat. Coba ulangi sebentar lagi."})
+		}
 		if email == "" {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "missing_email")
 			return c.Status(400).JSON(fiber.Map{"error": "Email wajib diisi"})
 		}
+		if _, err := mail.ParseAddress(email); err != nil {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "invalid_email")
+			return c.Status(400).JSON(fiber.Map{"error": "Format email tidak valid"})
+		}
+		if isTrialBlockedEmailDomain(trialSignupDomain(email)) {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "blocked_email_domain")
+			return c.Status(400).JSON(fiber.Map{"error": "Domain email ini tidak bisa dipakai untuk trial. Gunakan email utama Anda atau hubungi admin."})
+		}
 		if len(strings.TrimSpace(password)) < 6 {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "password_too_short")
 			return c.Status(400).JSON(fiber.Map{"error": "Password minimal 6 karakter"})
 		}
 		if password != confirmPassword {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "password_mismatch")
 			return c.Status(400).JSON(fiber.Map{"error": "Konfirmasi password tidak cocok"})
 		}
 		if config.TrialActiveDays <= 0 {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "invalid_trial_config")
 			return c.Status(500).JSON(fiber.Map{"error": "Konfigurasi trial tidak valid di server"})
 		}
+		if config.TrialSignupMaxSuccessPerIP > 0 && config.TrialSignupSuccessWindowDays > 0 && clientIP != "" {
+			successCount, err := Store.CountRecentSuccessfulTrialSignupsByIP(clientIP, time.Now().Add(-time.Duration(config.TrialSignupSuccessWindowDays)*24*time.Hour))
+			if err != nil {
+				logrus.WithError(err).Warn("failed to count recent successful trial signups")
+			} else if successCount >= config.TrialSignupMaxSuccessPerIP {
+				recordTrialSignupAttempt(email, clientIP, userAgent, false, "ip_trial_limit_reached")
+				return c.Status(429).JSON(fiber.Map{"error": "Trial gratis dari jaringan ini sudah pernah digunakan. Jika butuh akses, silakan hubungi admin."})
+			}
+		}
 		if _, err := Store.GetUserByEmail(email); err == nil {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "email_exists")
 			return c.Status(400).JSON(fiber.Map{"error": "Email sudah terdaftar"})
 		}
 
@@ -448,8 +894,10 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			ExpiresAt:  expiresAt,
 		})
 		if err != nil {
+			recordTrialSignupAttempt(email, clientIP, userAgent, false, "create_user_failed")
 			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 		}
+		recordTrialSignupAttempt(email, clientIP, userAgent, true, "trial_created")
 
 		user, session, err := AuthService.Login(email, password)
 		if err != nil {
@@ -667,9 +1115,9 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		}
 		parsed := parseBroadcastAIJSON(content)
 		if body.Mode == "spintax" {
-			spintaxMessage := strings.TrimSpace(parsed["spintax_message"])
+			spintaxMessage := normalizeBroadcastAIText(parsed["spintax_message"])
 			if spintaxMessage == "" {
-				spintaxMessage = strings.TrimSpace(content)
+				spintaxMessage = normalizeBroadcastAIText(content)
 			}
 			return c.JSON(fiber.Map{
 				"mode":            "spintax",
@@ -677,15 +1125,15 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			})
 		}
 
-		analysis := strings.TrimSpace(parsed["analysis"])
+		analysis := normalizeBroadcastAIText(parsed["analysis"])
 		if analysis == "" {
-			analysis = strings.TrimSpace(content)
+			analysis = normalizeBroadcastAIText(content)
 		}
 		return c.JSON(fiber.Map{
 			"mode":             "analyze",
 			"risk_level":       strings.TrimSpace(parsed["risk_level"]),
 			"analysis":         analysis,
-			"improved_message": strings.TrimSpace(parsed["improved_message"]),
+			"improved_message": normalizeBroadcastAIText(parsed["improved_message"]),
 		})
 	})
 	api.Get("/admin/meta-config", func(c *fiber.Ctx) error {
@@ -732,6 +1180,156 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(fiber.Map{"status": "saved"})
+	})
+	api.Get("/admin/trial-otp-config", func(c *fiber.Ctx) error {
+		user, err := currentUser(c)
+		if err != nil || !user.IsAdmin {
+			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
+		}
+		cfg := loadTrialOTPAdminConfig()
+		account, accountErr := ensureTrialOTPVerifierAccount()
+		connected := false
+		if accountErr == nil {
+			connected = whatsapp.IsClientConnectedForAccountForUser(trialOTPSystemUserID, account.ID)
+		}
+		return c.JSON(fiber.Map{
+			"enabled":          cfg.Enabled,
+			"ttl_minutes":      cfg.TTLMinutes,
+			"message_template": cfg.MessageTemplate,
+			"success_template": cfg.SuccessTemplate,
+			"account":          account,
+			"connected":        connected,
+			"login_url":        strings.TrimRight(c.BaseURL(), "/") + "/login",
+			"trial_days":       config.TrialActiveDays,
+			"account_error": firstNonEmpty(func() string {
+				if accountErr != nil {
+					return accountErr.Error()
+				}
+				return ""
+			}()),
+		})
+	})
+	api.Post("/admin/trial-otp-config", func(c *fiber.Ctx) error {
+		user, err := currentUser(c)
+		if err != nil || !user.IsAdmin {
+			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
+		}
+		var body struct {
+			Enabled         bool   `json:"enabled"`
+			TTLMinutes      int    `json:"ttl_minutes"`
+			MessageTemplate string `json:"message_template"`
+			SuccessTemplate string `json:"success_template"`
+		}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+		cfg := trialOTPAdminConfig{
+			Enabled:         body.Enabled,
+			TTLMinutes:      body.TTLMinutes,
+			MessageTemplate: body.MessageTemplate,
+			SuccessTemplate: body.SuccessTemplate,
+		}
+		if err := saveTrialOTPAdminConfig(cfg); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"status": "saved"})
+	})
+	api.Get("/admin/trial-otp-status", func(c *fiber.Ctx) error {
+		user, err := currentUser(c)
+		if err != nil || !user.IsAdmin {
+			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
+		}
+		account, err := ensureTrialOTPVerifierAccount()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{
+			"account":   account,
+			"connected": whatsapp.IsClientConnectedForAccountForUser(trialOTPSystemUserID, account.ID),
+			"jid":       whatsapp.GetClientJIDForAccountForUser(trialOTPSystemUserID, account.ID),
+		})
+	})
+	api.Get("/admin/trial-otp/qr", func(c *fiber.Ctx) error {
+		user, err := currentUser(c)
+		if err != nil || !user.IsAdmin {
+			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
+		}
+		account, err := ensureTrialOTPVerifierAccount()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		client := whatsapp.GetClientByAccountForUser(trialOTPSystemUserID, account.ID)
+		if client == nil {
+			return c.Status(404).JSON(fiber.Map{"error": "Akun verifier OTP tidak ditemukan"})
+		}
+		if client.IsLoggedIn() {
+			return c.JSON(fiber.Map{
+				"status":    "already_logged_in",
+				"jid":       whatsapp.GetClientJIDForAccountForUser(trialOTPSystemUserID, account.ID),
+				"account":   account,
+				"connected": whatsapp.IsClientConnectedForAccountForUser(trialOTPSystemUserID, account.ID),
+			})
+		}
+		qrChan, err := client.GetQRChannel(context.Background())
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err := client.Connect(); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		for evt := range qrChan {
+			switch evt.Event {
+			case "code":
+				png, err := qrcode.Encode(evt.Code, qrcode.Medium, 512)
+				if err != nil {
+					return c.Status(500).JSON(fiber.Map{"error": "Failed to generate QR"})
+				}
+				return c.JSON(fiber.Map{
+					"status":    "qr",
+					"qr":        "data:image/png;base64," + base64.StdEncoding.EncodeToString(png),
+					"code":      evt.Code,
+					"account":   account,
+					"connected": false,
+				})
+			case "success":
+				updatedAccount, _ := whatsapp.GetAccountForUser(trialOTPSystemUserID, account.ID)
+				return c.JSON(fiber.Map{
+					"status":    "success",
+					"jid":       updatedAccount.Phone,
+					"account":   updatedAccount,
+					"connected": true,
+				})
+			}
+		}
+		return c.JSON(fiber.Map{"status": "timeout", "account": account, "connected": false})
+	})
+	api.Post("/admin/trial-otp/reconnect", func(c *fiber.Ctx) error {
+		user, err := currentUser(c)
+		if err != nil || !user.IsAdmin {
+			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
+		}
+		account, err := ensureTrialOTPVerifierAccount()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err := whatsapp.ReconnectForAccountForUser(context.Background(), trialOTPSystemUserID, account.ID); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"status": "reconnected"})
+	})
+	api.Post("/admin/trial-otp/logout", func(c *fiber.Ctx) error {
+		user, err := currentUser(c)
+		if err != nil || !user.IsAdmin {
+			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
+		}
+		account, err := ensureTrialOTPVerifierAccount()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		if err := whatsapp.LogoutForAccountForUser(trialOTPSystemUserID, account.ID); err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(fiber.Map{"status": "logged_out"})
 	})
 
 	api.Get("/meta/accounts", func(c *fiber.Ctx) error {
@@ -2308,6 +2906,7 @@ Ubah pesan berikut menjadi versi spintax berat namun tetap natural untuk broadca
 Gunakan format spintax {opsi satu|opsi dua|opsi tiga}.
 Spin banyak bagian kalimat, sapaan, transisi, CTA, dan variasi kata, tetapi makna harus tetap sama.
 Jangan menambah informasi baru.
+Pertahankan format pesan aslinya. Jika pesan asli memakai enter atau paragraf terpisah, hasil akhir juga harus tetap memakai enter asli, bukan karakter literal \n.
 %s
 
 Output JSON:
@@ -2323,6 +2922,7 @@ Tugas:
 Analisa pesan broadcast WhatsApp berikut apakah berisiko dianggap spam.
 Berikan pendapat singkat, tingkat risiko, dan versi teks yang lebih aman serta tetap menjual.
 Teks perbaikan harus lebih natural, ramah, tidak terlalu agresif, tetap jelas CTA-nya, dan cocok untuk broadcast.
+Pertahankan format pesan aslinya. Jika pesan asli memakai enter atau paragraf terpisah, hasil akhir juga harus tetap memakai enter asli, bukan karakter literal \n.
 %s
 
 Output JSON:
@@ -2493,6 +3093,24 @@ func parseBroadcastAIJSON(content string) map[string]string {
 		result[key] = strings.TrimSpace(fmt.Sprint(value))
 	}
 	return result
+}
+
+func normalizeBroadcastAIText(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.NewReplacer(
+		"\r\n", "\n",
+		"\r", "\n",
+		`\\r\\n`, "\n",
+		`\\n`, "\n",
+		`\\r`, "\n",
+		`\r\n`, "\n",
+		`\n`, "\n",
+		`\r`, "\n",
+	).Replace(value)
+	return strings.TrimSpace(value)
 }
 
 func ensureAtLeastOneAccount(userID string) (whatsapp.AccountInfo, error) {

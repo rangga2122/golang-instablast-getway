@@ -61,10 +61,17 @@ func initApp() {
 	if err := Store.EnsureUserTable(); err != nil {
 		logrus.Fatalf("Failed to initialize user table: %v", err)
 	}
+	if err := Store.EnsureTrialSignupTable(); err != nil {
+		logrus.Fatalf("Failed to initialize trial signup table: %v", err)
+	}
+	if err := Store.EnsureTrialOTPSessionTable(); err != nil {
+		logrus.Fatalf("Failed to initialize trial otp session table: %v", err)
+	}
 	if err := Store.SeedAdminUser("azam@gmail.com", "Nr201105"); err != nil {
 		logrus.Fatalf("Failed to seed admin user: %v", err)
 	}
 	AuthService = auth.NewService(Store)
+	initTrialOTPVerifierManager()
 	ai.SetGlobalAPIKeyProvider(func() string {
 		return Store.GetPref("global_nvidia_api_key")
 	})

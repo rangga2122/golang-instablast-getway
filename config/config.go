@@ -14,8 +14,17 @@ var (
 	AppVersion = "1.0.0"
 
 	// Trial
-	TrialActiveDays = 3
-	TrialMaxDevices = 1
+	TrialActiveDays              = 3
+	TrialMaxDevices              = 1
+	TrialSignupWindowMinutes     = 60
+	TrialSignupMaxAttemptsPerIP  = 5
+	TrialSignupSuccessWindowDays = 30
+	TrialSignupMaxSuccessPerIP   = 1
+	TrialSignupMinFormSeconds    = 2
+	TrialBlockedEmailDomains     = ""
+	TrialOTPEnabled              = true
+	TrialOTPTTLMinutes           = 5
+	TrialOTPMaxVerifyAttempts    = 5
 
 	// Database
 	DBURI = "file:storages/whatsapp.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(15000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=temp_store(MEMORY)"
@@ -51,6 +60,15 @@ func init() {
 	AppDebug = envBool("APP_DEBUG", AppDebug)
 	TrialActiveDays = envInt("TRIAL_ACTIVE_DAYS", TrialActiveDays)
 	TrialMaxDevices = envInt("TRIAL_MAX_DEVICES", TrialMaxDevices)
+	TrialSignupWindowMinutes = envInt("TRIAL_SIGNUP_WINDOW_MINUTES", TrialSignupWindowMinutes)
+	TrialSignupMaxAttemptsPerIP = envInt("TRIAL_SIGNUP_MAX_ATTEMPTS_PER_IP", TrialSignupMaxAttemptsPerIP)
+	TrialSignupSuccessWindowDays = envInt("TRIAL_SIGNUP_SUCCESS_WINDOW_DAYS", TrialSignupSuccessWindowDays)
+	TrialSignupMaxSuccessPerIP = envInt("TRIAL_SIGNUP_MAX_SUCCESS_PER_IP", TrialSignupMaxSuccessPerIP)
+	TrialSignupMinFormSeconds = envInt("TRIAL_SIGNUP_MIN_FORM_SECONDS", TrialSignupMinFormSeconds)
+	TrialBlockedEmailDomains = envString("TRIAL_BLOCKED_EMAIL_DOMAINS", TrialBlockedEmailDomains)
+	TrialOTPEnabled = envBool("TRIAL_OTP_ENABLED", TrialOTPEnabled)
+	TrialOTPTTLMinutes = envInt("TRIAL_OTP_TTL_MINUTES", TrialOTPTTLMinutes)
+	TrialOTPMaxVerifyAttempts = envInt("TRIAL_OTP_MAX_VERIFY_ATTEMPTS", TrialOTPMaxVerifyAttempts)
 }
 
 func firstNonEmpty(values ...string) string {
@@ -84,4 +102,12 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func envString(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
 }

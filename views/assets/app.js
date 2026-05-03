@@ -56,6 +56,7 @@ let broadcastType = 'unofficial';
 let latestBroadcastProgress = null;
 let historyQueueSchedulesCache = [];
 let broadcastAIImprovedDraft = '';
+let broadcastSpintaxOriginalMessage = '';
 
 // ===== Toast =====
 function showToast(msg, type) {
@@ -103,6 +104,18 @@ function getActiveAccount() {
 
 function jsString(str) {
   return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r/g, '').replace(/\n/g, '\\n');
+}
+
+function normalizeAIMessageFormatting(text) {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  return value
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\n')
+    .trim();
 }
 
 function findAccountCard(accountID) {
@@ -994,6 +1007,8 @@ function switchTab(tab) {
     loadAdminUsers();
     loadAdminAIConfig();
     loadAdminMetaConfig();
+    loadAdminTrialOTPConfig();
+    loadAdminTrialOTPStatus();
   }
   if (paneTab === 'waba') {
     sanitizeWabaCloudCopy();
@@ -1060,8 +1075,8 @@ function updateConnectionUI(status) {
   const connAccountMeta = $('connAccountMeta');
 
   if (connected) {
-    dot.classList.add('connected');
-    text.textContent = 'Terhubung';
+    if (dot) dot.classList.add('connected');
+    if (text) text.textContent = 'Terhubung';
     if (stat) stat.textContent = 'Online';
     if (btnScan) btnScan.style.display = 'none';
     if (qrContainer) qrContainer.style.display = 'none';
@@ -1069,8 +1084,8 @@ function updateConnectionUI(status) {
     if (connJID) connJID.textContent = jid || '';
     if (connAccountMeta) connAccountMeta.textContent = active ? `${active.name} • ${active.status || 'Online'}` : '';
   } else {
-    dot.classList.remove('connected');
-    text.textContent = 'Tidak Terhubung';
+    if (dot) dot.classList.remove('connected');
+    if (text) text.textContent = 'Tidak Terhubung';
     if (stat) stat.textContent = 'Offline';
     if (btnScan) btnScan.style.display = 'flex';
     if (connectedInfo) connectedInfo.style.display = 'none';
@@ -1278,15 +1293,29 @@ function resolveBroadcastPreviewVariables(text, contact) {
   });
 }
 
+function applyBroadcastPreviewWhatsappFormatting(text) {
+  return String(text || '')
+    .replace(/(^|[\s(>])\*([^*\n][^*\n]*?)\*(?=($|[\s).,!?:;<\]}]))/g, '$1<strong>$2</strong>')
+    .replace(/(^|[\s(>])_([^_\n][^_\n]*?)_(?=($|[\s).,!?:;<\]}]))/g, '$1<em>$2</em>')
+    .replace(/(^|[\s(>])~([^~\n][^~\n]*?)~(?=($|[\s).,!?:;<\]}]))/g, '$1<del>$2</del>')
+    .replace(/(^|[\s(>])`([^`\n][^`\n]*?)`(?=($|[\s).,!?:;<\]}]))/g, '$1<code>$2</code>');
+}
+
 function formatBroadcastPreviewMessage(message, sampleContact) {
   const text = String(message || '').trim();
   if (!text) return 'Tulis isi pesan untuk melihat preview di sini.';
   const resolved = resolveBroadcastPreviewVariables(resolveBroadcastPreviewSpintax(text), sampleContact);
-  return escapeHtml(resolved)
-    .replace(/\{[^{}\n|]+\}/g, (token) => {
-      return `<span class="blast-preview-token variable">${escapeHtml(token)}</span>`;
-    })
-    .replace(/\n/g, '<br>');
+  const variableTokens = [];
+  const tokenized = resolved.replace(/\{[^{}\n|]+\}/g, (token) => {
+    const marker = `@@VAR_${variableTokens.length}@@`;
+    variableTokens.push(`<span class="blast-preview-token variable">${escapeHtml(token)}</span>`);
+    return marker;
+  });
+
+  let html = escapeHtml(tokenized);
+  html = applyBroadcastPreviewWhatsappFormatting(html);
+  html = html.replace(/@@VAR_(\d+)@@/g, (_, index) => variableTokens[Number(index)] || '');
+  return html.replace(/\n/g, '<br>');
 }
 
 function normalizePreviewTextForCompare(value) {
@@ -1493,7 +1522,8 @@ function insertSelectedBroadcastVariable() {
 function setBroadcastAIButtonsLoading(loading, label) {
   const analyzeBtn = $('broadcastAnalyzeBtn');
   const spintaxBtn = $('broadcastSpintaxBtn');
-  [analyzeBtn, spintaxBtn].forEach((btn) => {
+  const undoBtn = $('broadcastSpintaxUndoBtn');
+  [analyzeBtn, spintaxBtn, undoBtn].forEach((btn) => {
     if (!btn) return;
     btn.disabled = !!loading;
   });
@@ -1504,12 +1534,20 @@ function setBroadcastAIButtonsLoading(loading, label) {
   }
 }
 
+function updateBroadcastSpintaxUndoButton() {
+  const btn = $('broadcastSpintaxUndoBtn');
+  if (!btn) return;
+  const canRestore = !!String(broadcastSpintaxOriginalMessage || '').length;
+  btn.hidden = !canRestore;
+  btn.disabled = !canRestore;
+}
+
 function renderBroadcastAIResult(data) {
   const wrap = $('broadcastAIResult');
   if (!wrap) return;
   const risk = String(data?.risk_level || '').trim();
-  const analysis = String(data?.analysis || '').trim();
-  const improved = String(data?.improved_message || '').trim();
+  const analysis = normalizeAIMessageFormatting(data?.analysis);
+  const improved = normalizeAIMessageFormatting(data?.improved_message);
   broadcastAIImprovedDraft = improved;
 
   if (!analysis && !improved) {
@@ -1543,9 +1581,20 @@ function applyBroadcastAIImproved() {
   showToast('Teks hasil perbaikan AI dipakai', 'success');
 }
 
+function restoreBroadcastSpintaxMessage() {
+  const message = $('message');
+  if (!message || !broadcastSpintaxOriginalMessage) return;
+  message.value = broadcastSpintaxOriginalMessage;
+  broadcastSpintaxOriginalMessage = '';
+  updateBroadcastSpintaxUndoButton();
+  renderBroadcastPreview();
+  showToast('Teks sebelum spintax berhasil dikembalikan', 'success');
+}
+
 async function runBroadcastAIAssistant(mode) {
   const messageEl = $('message');
-  const message = messageEl?.value?.trim() || '';
+  const rawMessage = messageEl?.value || '';
+  const message = rawMessage.trim();
   if (!message) {
     showToast('Isi pesan dulu sebelum memakai AI', 'warning');
     return;
@@ -1564,8 +1613,10 @@ async function runBroadcastAIAssistant(mode) {
     });
 
     if (isSpintax) {
-      const nextMessage = String(data.spintax_message || '').trim();
+      const nextMessage = normalizeAIMessageFormatting(data.spintax_message);
       if (!nextMessage) throw new Error('AI tidak mengembalikan teks spintax');
+      broadcastSpintaxOriginalMessage = rawMessage;
+      updateBroadcastSpintaxUndoButton();
       messageEl.value = nextMessage;
       renderBroadcastPreview();
       renderBroadcastAIResult({
@@ -1927,6 +1978,56 @@ function formatScheduleStatus(status) {
   return 'Menunggu';
 }
 
+function normalizeHistoryRecords(data) {
+  if (Array.isArray(data?.history)) return data.history;
+  if (Array.isArray(data?.records)) return data.records;
+  return [];
+}
+
+function summarizeHistoryRecords(records = []) {
+  let totalSent = 0;
+  let totalFailed = 0;
+  records.forEach((item) => {
+    totalSent += Number(item?.sent || 0);
+    totalFailed += Number(item?.failed || 0);
+  });
+  const totalSessions = records.length;
+  const totalAttempts = totalSent + totalFailed;
+  const successRate = totalAttempts > 0 ? `${Math.round((totalSent / totalAttempts) * 100)}%` : '0%';
+  return { totalSent, totalFailed, totalSessions, successRate };
+}
+
+function applyHistorySummary(summary) {
+  if ($('histTotalSent')) $('histTotalSent').textContent = summary.totalSent || 0;
+  if ($('histTotalFailed')) $('histTotalFailed').textContent = summary.totalFailed || 0;
+  if ($('histTotalSessions')) $('histTotalSessions').textContent = summary.totalSessions || 0;
+  if ($('histSuccessRate')) $('histSuccessRate').textContent = summary.successRate || '0%';
+}
+
+function applyDashboardSummary(summary, progress = latestBroadcastProgress) {
+  const liveStatus = String(progress?.status || '').toLowerCase();
+  const hasLiveSession = (liveStatus === 'running' || liveStatus === 'paused') && Number(progress?.total || 0) > 0;
+  const totalBroadcast = (summary.totalSessions || 0) + (hasLiveSession ? 1 : 0);
+  const totalSent = (summary.totalSent || 0) + (hasLiveSession ? Number(progress?.sent || 0) : 0);
+  const totalFailed = (summary.totalFailed || 0) + (hasLiveSession ? Number(progress?.failed || 0) : 0);
+
+  if ($('statTotalBC')) $('statTotalBC').textContent = totalBroadcast;
+  if ($('statSent')) $('statSent').textContent = totalSent;
+  if ($('statFailed')) $('statFailed').textContent = totalFailed;
+}
+
+async function refreshDashboardSummary() {
+  try {
+    const data = await api('/history');
+    const records = normalizeHistoryRecords(data);
+    const summary = summarizeHistoryRecords(records);
+    applyDashboardSummary(summary);
+    return summary;
+  } catch (_) {
+    return null;
+  }
+}
+
 function updateBroadcastQuickStats() {
   const activeWrap = $('progressWrap');
   if (activeWrap) {
@@ -1975,7 +2076,9 @@ async function loadBroadcastMiniHistory() {
   if (!wrap) return;
   try {
     const data = await api('/history');
-    broadcastHistoryCache = (data.records || []).filter(item => (item.type || 'broadcast') === 'broadcast').slice(0, 5);
+    broadcastHistoryCache = normalizeHistoryRecords(data)
+      .filter(item => (item.type || 'broadcast') === 'broadcast')
+      .slice(0, 5);
     if (!broadcastHistoryCache.length) {
       wrap.innerHTML = '<div class="empty-state-inline">Belum ada riwayat blast.</div>';
       return;
@@ -2120,6 +2223,7 @@ function updateProgressUILegacy(p) {
 function updateProgressUI(p) {
   p = p || { status: 'idle', current: 0, total: 0, sent: 0, failed: 0 };
   latestBroadcastProgress = p || null;
+  const progressStatus = String(p.status || 'idle').toLowerCase();
 
   const bar = $('progressBar');
   const label = $('progressLabel');
@@ -2156,9 +2260,13 @@ function updateProgressUI(p) {
   if (barP) barP.style.width = pct + '%';
   if (labelP) labelP.textContent = `${p.current || 0}/${p.total || 0}`;
 
-  if ($('statTotalBC')) $('statTotalBC').textContent = p.total || 0;
-  if ($('statSent')) $('statSent').textContent = p.sent || 0;
-  if ($('statFailed')) $('statFailed').textContent = p.failed || 0;
+  if (progressStatus === 'running' || progressStatus === 'paused') {
+    if ($('statTotalBC')) $('statTotalBC').textContent = p.total || 0;
+    if ($('statSent')) $('statSent').textContent = p.sent || 0;
+    if ($('statFailed')) $('statFailed').textContent = p.failed || 0;
+  } else {
+    refreshDashboardSummary();
+  }
 
   if (dashCard && p.status === 'running') {
     dashCard.style.display = 'block';
@@ -3439,18 +3547,12 @@ async function loadHistory() {
   try {
     await loadHistoryQueue();
     const data = await api('/history');
-    const records = data.history || [];
+    const records = normalizeHistoryRecords(data);
     const tbody = $('historyTableBody');
+    const summary = summarizeHistoryRecords(records);
 
-    let totalSent = 0, totalFailed = 0;
-    records.forEach(r => { totalSent += r.sent; totalFailed += r.failed; });
-
-    $('histTotalSent').textContent = totalSent;
-    $('histTotalFailed').textContent = totalFailed;
-    $('histTotalSessions').textContent = records.length;
-    $('histSuccessRate').textContent = (totalSent + totalFailed > 0)
-      ? Math.round((totalSent / (totalSent + totalFailed)) * 100) + '%'
-      : '0%';
+    applyHistorySummary(summary);
+    applyDashboardSummary(summary);
 
     if (!records.length) {
       tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">Belum ada riwayat broadcast</td></tr>';
@@ -3666,6 +3768,134 @@ async function loadAdminMetaConfig() {
       $('adminMetaStatus').textContent = e.message;
       $('adminMetaStatus').style.color = '#ef4444';
     }
+  }
+}
+
+function setAdminTrialOTPText(id, message, color) {
+  if (!$(id)) return;
+  $(id).textContent = message || '';
+  $(id).style.color = color || '#667085';
+}
+
+function renderAdminTrialOTPAccount(data = {}) {
+  const account = data.account || {};
+  const connected = !!data.connected;
+  if ($('adminTrialOTPEnabled')) $('adminTrialOTPEnabled').checked = !!data.enabled;
+  if ($('adminTrialOTPTTL') && data.ttl_minutes) $('adminTrialOTPTTL').value = String(data.ttl_minutes);
+  if ($('adminTrialOTPMessageTemplate') && typeof data.message_template === 'string') $('adminTrialOTPMessageTemplate').value = data.message_template;
+  if ($('adminTrialOTPSuccessTemplate') && typeof data.success_template === 'string') $('adminTrialOTPSuccessTemplate').value = data.success_template;
+  if ($('adminTrialOTPAccountName')) $('adminTrialOTPAccountName').value = account.name || 'Verifier OTP Trial';
+  if ($('adminTrialOTPConnection')) $('adminTrialOTPConnection').value = connected ? 'Online' : (account.status || 'Belum login');
+  if ($('adminTrialOTPJID')) $('adminTrialOTPJID').value = data.jid || account.phone || account.jid || '-';
+  if (data.qr && $('adminTrialOTPQRImage') && $('adminTrialOTPQRWrap')) {
+    $('adminTrialOTPQRImage').src = data.qr;
+    $('adminTrialOTPQRWrap').style.display = 'block';
+  } else if (connected && $('adminTrialOTPQRWrap')) {
+    $('adminTrialOTPQRWrap').style.display = 'none';
+    if ($('adminTrialOTPQRImage')) $('adminTrialOTPQRImage').src = '';
+  }
+}
+
+async function loadAdminTrialOTPConfig() {
+  if (!currentUser?.is_admin) return;
+  try {
+    const data = await api('/admin/trial-otp-config');
+    renderAdminTrialOTPAccount(data || {});
+    if (data?.account_error) {
+      setAdminTrialOTPText('adminTrialOTPDeviceStatus', data.account_error, '#ef4444');
+    }
+  } catch (e) {
+    setAdminTrialOTPText('adminTrialOTPStatus', e.message, '#ef4444');
+    setAdminTrialOTPText('adminTrialOTPDeviceStatus', e.message, '#ef4444');
+  }
+}
+
+async function loadAdminTrialOTPStatus() {
+  if (!currentUser?.is_admin) return;
+  try {
+    const data = await api('/admin/trial-otp-status');
+    renderAdminTrialOTPAccount(data || {});
+    setAdminTrialOTPText('adminTrialOTPDeviceStatus', data.connected ? 'WhatsApp verifier OTP sedang online.' : 'WhatsApp verifier OTP belum login. Scan QR untuk menghubungkan.', data.connected ? '#22c55e' : '#f59e0b');
+  } catch (e) {
+    setAdminTrialOTPText('adminTrialOTPDeviceStatus', e.message, '#ef4444');
+  }
+}
+
+async function saveAdminTrialOTPConfig() {
+  if (!currentUser?.is_admin) return;
+  try {
+    await api('/admin/trial-otp-config', {
+      method: 'POST',
+      body: JSON.stringify({
+        enabled: $('adminTrialOTPEnabled')?.checked || false,
+        ttl_minutes: parseInt($('adminTrialOTPTTL')?.value || '5', 10) || 5,
+        message_template: $('adminTrialOTPMessageTemplate')?.value || '',
+        success_template: $('adminTrialOTPSuccessTemplate')?.value || ''
+      })
+    });
+    setAdminTrialOTPText('adminTrialOTPStatus', 'Konfigurasi OTP trial berhasil disimpan', '#22c55e');
+    await loadAdminTrialOTPConfig();
+  } catch (e) {
+    setAdminTrialOTPText('adminTrialOTPStatus', e.message, '#ef4444');
+  }
+}
+
+async function requestAdminTrialOTPQR() {
+  if (!currentUser?.is_admin) return;
+  try {
+    setAdminTrialOTPText('adminTrialOTPDeviceStatus', 'Meminta QR verifier OTP...', '#f59e0b');
+    const data = await api('/admin/trial-otp/qr');
+    renderAdminTrialOTPAccount(data || {});
+    if (data.status === 'already_logged_in' || data.connected) {
+      setAdminTrialOTPText('adminTrialOTPDeviceStatus', 'Verifier OTP sudah login dan online.', '#22c55e');
+      return;
+    }
+    if (data.status === 'qr') {
+      setAdminTrialOTPText('adminTrialOTPDeviceStatus', 'QR verifier OTP tampil. Silakan scan dengan WhatsApp admin.', '#22c55e');
+      let attempts = 0;
+      const interval = setInterval(async () => {
+        attempts += 1;
+        if (attempts > 60) {
+          clearInterval(interval);
+          return;
+        }
+        try {
+          const status = await api('/admin/trial-otp-status');
+          renderAdminTrialOTPAccount(status || {});
+          if (status.connected) {
+            clearInterval(interval);
+            setAdminTrialOTPText('adminTrialOTPDeviceStatus', 'WhatsApp verifier OTP berhasil terhubung.', '#22c55e');
+          }
+        } catch (_) {}
+      }, 3000);
+    }
+  } catch (e) {
+    setAdminTrialOTPText('adminTrialOTPDeviceStatus', e.message, '#ef4444');
+  }
+}
+
+async function reconnectAdminTrialOTP() {
+  if (!currentUser?.is_admin) return;
+  try {
+    await api('/admin/trial-otp/reconnect', { method: 'POST' });
+    setAdminTrialOTPText('adminTrialOTPDeviceStatus', 'Meminta reconnect verifier OTP...', '#f59e0b');
+    setTimeout(loadAdminTrialOTPStatus, 2500);
+  } catch (e) {
+    setAdminTrialOTPText('adminTrialOTPDeviceStatus', e.message, '#ef4444');
+  }
+}
+
+async function logoutAdminTrialOTP() {
+  if (!currentUser?.is_admin) return;
+  if (!confirm('Logout akun WhatsApp verifier OTP?')) return;
+  try {
+    await api('/admin/trial-otp/logout', { method: 'POST' });
+    if ($('adminTrialOTPQRWrap')) $('adminTrialOTPQRWrap').style.display = 'none';
+    if ($('adminTrialOTPQRImage')) $('adminTrialOTPQRImage').src = '';
+    setAdminTrialOTPText('adminTrialOTPDeviceStatus', 'Verifier OTP berhasil logout.', '#22c55e');
+    await loadAdminTrialOTPStatus();
+  } catch (e) {
+    setAdminTrialOTPText('adminTrialOTPDeviceStatus', e.message, '#ef4444');
   }
 }
 
@@ -4211,7 +4441,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   Promise.allSettled([loadCurrentUser(), loadAccounts()]).finally(() => {
     renderAPIDocsMeta();
-    setTimeout(checkConnection, 500);
+    setTimeout(() => {
+      checkConnection();
+      refreshDashboardSummary();
+    }, 500);
   });
 
   window.addEventListener('resize', () => {

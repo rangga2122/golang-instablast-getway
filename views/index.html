@@ -434,6 +434,9 @@
                       <div class="broadcast-ai-tools">
                         <button class="btn btn-secondary btn-sm" type="button" id="broadcastAnalyzeBtn" onclick="analyzeBroadcastMessage()">Analisa Pesan</button>
                         <button class="btn btn-primary btn-sm" type="button" id="broadcastSpintaxBtn" onclick="generateBroadcastSpintax()">Spintax AI Berat</button>
+                        <button class="btn btn-secondary btn-sm broadcast-ai-undo-btn" type="button" id="broadcastSpintaxUndoBtn" onclick="restoreBroadcastSpintaxMessage()" hidden title="Kembalikan ke teks sebelum spintax" aria-label="Kembalikan ke teks sebelum spintax">
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 7H4v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 12a8 8 0 1 0 2.3-5.7L4 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
                       </div>
                       <div id="broadcastAIStatus" class="status-text"></div>
                       <div id="broadcastAIResult" class="broadcast-ai-result" hidden></div>
@@ -926,6 +929,35 @@ Content-Type: application/json
               <div class="btn-row"><button class="btn btn-primary" onclick="saveAdminAIConfig()">Simpan API Key</button></div>
               <div id="adminAIStatus" class="status-text"></div>
             </div>
+            <div class="card">
+              <div class="card-title"><span>OTP</span> Trial OTP WhatsApp</div>
+              <label class="toggle"><input type="checkbox" id="adminTrialOTPEnabled" checked /> Wajibkan trial verifikasi OTP WhatsApp</label>
+              <div class="form-group"><label>Masa berlaku OTP (menit)</label><input type="number" id="adminTrialOTPTTL" value="5" min="1" max="30" /></div>
+              <div class="form-group"><label>Teks WhatsApp untuk kirim OTP</label><textarea id="adminTrialOTPMessageTemplate" rows="6" placeholder="Gunakan variabel {{code}}, {{minutes}}, {{email}}, {{phone}}, {{login_url}}"></textarea></div>
+              <div class="form-group"><label>Teks WhatsApp setelah verifikasi berhasil</label><textarea id="adminTrialOTPSuccessTemplate" rows="7" placeholder="Gunakan variabel {{email}}, {{password}}, {{phone}}, {{login_url}}, {{trial_days}}"></textarea></div>
+              <div class="hint">Template OTP bisa Anda edit sendiri. Variabel yang tersedia: <code>{{code}}</code>, <code>{{minutes}}</code>, <code>{{email}}</code>, <code>{{phone}}</code>, <code>{{login_url}}</code>, <code>{{trial_days}}</code>, <code>{{password}}</code>.</div>
+              <div class="btn-row"><button class="btn btn-primary" onclick="saveAdminTrialOTPConfig()">Simpan Konfigurasi OTP</button></div>
+              <div id="adminTrialOTPStatus" class="status-text"></div>
+            </div>
+            <div class="card">
+              <div class="card-title"><span>QR</span> WhatsApp Verifier OTP</div>
+              <div class="hint">Akun ini khusus untuk mengirim OTP trial ke pendaftar. Scan QR di sini dengan nomor admin/verifier yang ingin dipakai.</div>
+              <div class="form-row">
+                <div class="form-group"><label>Status koneksi</label><input type="text" id="adminTrialOTPConnection" value="Memuat..." readonly /></div>
+                <div class="form-group"><label>Nomor aktif</label><input type="text" id="adminTrialOTPJID" value="-" readonly /></div>
+              </div>
+              <div class="form-group"><label>Nama akun verifier</label><input type="text" id="adminTrialOTPAccountName" value="Verifier OTP Trial" readonly /></div>
+              <div id="adminTrialOTPQRWrap" style="display:none; text-align:center; margin-top:10px;">
+                <img id="adminTrialOTPQRImage" src="" alt="QR OTP Verifier" style="max-width:280px; width:100%; border-radius:18px; border:2px solid rgba(16,185,129,0.2);" />
+              </div>
+              <div class="btn-row">
+                <button class="btn btn-primary" onclick="requestAdminTrialOTPQR()">Scan Barcode Verifier</button>
+                <button class="btn btn-secondary" onclick="loadAdminTrialOTPStatus()">Refresh Status</button>
+                <button class="btn btn-secondary" onclick="reconnectAdminTrialOTP()">Reconnect</button>
+                <button class="btn btn-danger" onclick="logoutAdminTrialOTP()">Logout Verifier</button>
+              </div>
+              <div id="adminTrialOTPDeviceStatus" class="status-text"></div>
+            </div>
             <div class="card" hidden>
               <div class="card-title"><span>Meta</span> Konfigurasi WABA Cloud</div>
               <div class="form-group"><label>App ID</label><input type="text" id="adminMetaAppId" placeholder="Meta App ID" /></div>
@@ -1008,6 +1040,6 @@ Content-Type: application/json
     </div>
   </div>
 
-  <script src="/assets/app.js?v=20260502-0116"></script>
+  <script src="/assets/app.js?v=20260503-otp1"></script>
 </body>
 </html>
