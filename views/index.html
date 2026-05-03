@@ -10,7 +10,7 @@
   <meta name="description" content="InstaBlast Pro - WhatsApp Broadcast & AI Management" />
   <link rel="icon" href="/icon.ico" sizes="any" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/styles.css?v=20260502-0115" />
+  <link rel="stylesheet" href="/assets/styles.css?v=20260503-ai-delay-seconds1" />
 </head>
 <body>
 
@@ -571,8 +571,8 @@
           <div class="stat-card orange"><div class="stat-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div><div class="stat-info"><div class="stat-label">AI Gagal</div><div class="stat-value" id="aiStatFailed">0</div></div></div>
         </div>
         <div class="two-column">
-          <div class="column"><div class="card card-purple"><div class="card-title"><span>AI</span> Konfigurasi Auto-Reply</div><label class="toggle"><input type="checkbox" id="aiEnabled" /> Aktifkan balas otomatis AI</label><label class="toggle"><input type="checkbox" id="aiOcrEnabled" checked /> Aktifkan AI Vision untuk gambar masuk</label><label class="toggle"><input type="checkbox" id="aiRajaOngkirEnabled" /> Integrasi RajaOngkir untuk cek ongkir</label><div id="aiRajaOngkirFields" style="display:none;"><div class="form-group"><label>API Key RajaOngkir</label><input type="password" id="aiRajaOngkirApiKey" placeholder="Masukkan API key Shipping Cost" /></div><div class="form-group"><label>Lokasi Origin</label><input type="text" id="aiRajaOngkirOrigin" placeholder="Contoh: Jakarta Selatan, DKI Jakarta" /></div><div class="hint">Satu hit biasanya berarti satu request ke endpoint RajaOngkir, misalnya sekali cek ongkir atau sekali pencarian tujuan.</div></div><div class="form-group"><label>Pilih akun WhatsApp untuk AI</label><div id="aiAccountPicker" class="account-picker"><div class="empty-state-inline">Memuat akun...</div></div></div><div class="form-group"><label>Delay Balas (ms)</label><input type="number" id="aiDelayMs" value="1200" min="0" /></div><div class="form-row"><div class="form-group"><label>Memory Riwayat</label><input type="number" id="aiMaxHistory" value="15" min="1" max="50" /></div><div class="form-group"><label>Batch Window (ms)</label><input type="number" id="aiBatchWindowMs" value="4500" min="500" max="30000" /></div></div><div class="hint">Pesan yang masuk berdekatan dalam satu chat akan digabung sebelum AI membalas.</div></div></div>
-          <div class="column"><div class="card"><div class="card-title"><span>Prompt</span> Prompt & Pengetahuan Umum</div><div class="form-group"><label>Instruksi AI</label><textarea id="aiInstruction" rows="6" placeholder="Contoh: Jawab singkat, ramah, dan fokus closing.">Jawab dengan singkat, jelas, natural, dan sopan dalam bahasa Indonesia.</textarea></div><div class="form-group"><label>Catatan Umum AI</label><textarea id="aiProductInfo" rows="5" placeholder="Masukkan info umum toko, aturan closing, kebijakan order, atau hal lain yang berlaku untuk semua CS."></textarea></div><div class="btn-row"><button class="btn btn-primary" onclick="saveAISettings()">Simpan AI</button><button class="btn btn-secondary" onclick="testAI()">Test AI</button></div><div id="aiStatus" class="status-text"></div><div id="aiLastError" class="status-text" style="color:#ef4444;"></div></div></div>
+          <div class="column"><div class="card card-purple"><div class="card-title"><span>AI</span> Konfigurasi Auto-Reply</div><label class="toggle"><input type="checkbox" id="aiEnabled" /> Aktifkan balas otomatis AI</label><label class="toggle"><input type="checkbox" id="aiSystemOngkirEnabled" /> Perhitungan Ongkir Sistem</label><div id="aiSystemOngkirFields" style="display:none;"><div class="form-group"><label>Lokasi Origin Sistem</label><input type="text" id="aiSystemOngkirOrigin" placeholder="Contoh: Jakarta Selatan, DKI Jakarta" /></div><div class="hint">Mode ini memakai engine ongkir sistem seperti proyek `ongkir` Anda, langsung dari InstaBlast tanpa API RajaOngkir.</div></div><label class="toggle"><input type="checkbox" id="aiRajaOngkirEnabled" /> Integrasi RajaOngkir untuk cek ongkir</label><div id="aiRajaOngkirFields" style="display:none;"><div class="form-group"><label>API Key RajaOngkir</label><input type="password" id="aiRajaOngkirApiKey" placeholder="Masukkan API key Shipping Cost" /></div><div class="form-group"><label>Lokasi Origin</label><input type="text" id="aiRajaOngkirOrigin" placeholder="Contoh: Jakarta Selatan, DKI Jakarta" /></div><div class="hint">Satu hit biasanya berarti satu request ke endpoint RajaOngkir, misalnya sekali cek ongkir atau sekali pencarian tujuan.</div></div><div class="form-group"><label>Pilih akun WhatsApp untuk AI</label><div id="aiAccountPicker" class="account-picker"><div class="empty-state-inline">Memuat akun...</div></div></div><div class="form-group"><label>Delay Balas (detik)</label><input type="number" id="aiDelayMs" value="10" min="0" step="1" /></div><div class="form-row"><div class="form-group"><label>Memory Riwayat</label><input type="number" id="aiMaxHistory" value="15" min="1" max="50" /></div><div class="form-group"><label>Batch Window (ms)</label><input type="number" id="aiBatchWindowMs" value="4500" min="500" max="30000" /></div></div><div class="hint">Pesan yang masuk berdekatan dalam satu chat akan digabung sebelum AI membalas.</div></div></div>
+          <div class="column"><div class="card"><div class="card-title"><span>Prompt</span> Prompt & Pengetahuan Umum</div><div class="form-group"><label>Tipe Customer Service</label><select id="aiInstructionProfile" onchange="applyAIInstructionProfile(this.value)"><option value="">Pilih tipe customer service...</option><option value="ramah">Ramah</option><option value="profesional">Profesional</option><option value="soft_selling">Soft Selling</option><option value="konsultatif">Konsultatif</option><option value="fast_response">Fast Response</option><option value="santai">Santai</option><option value="tegas">Tegas</option><option value="closing">Closing</option></select><div class="hint">Saat dipilih, template instruksi akan langsung diisi dan selalu menjaga jawaban tetap singkat.</div></div><div class="form-group"><label>Instruksi AI</label><textarea id="aiInstruction" rows="6" placeholder="Contoh: Jawab singkat, ramah, dan fokus closing.">Jawab dengan singkat, jelas, natural, dan sopan dalam bahasa Indonesia.</textarea></div><div class="form-group"><label>Catatan Umum AI</label><textarea id="aiProductInfo" rows="5" placeholder="Masukkan info umum toko, aturan closing, kebijakan order, atau hal lain yang berlaku untuk semua CS."></textarea></div><div class="btn-row"><button class="btn btn-primary" onclick="saveAISettings()">Simpan AI</button><button class="btn btn-secondary" onclick="testAI()">Test AI</button></div><div id="aiStatus" class="status-text"></div><div id="aiLastError" class="status-text" style="color:#ef4444;"></div></div></div>
         </div>
         <div class="card">
           <div class="card-title"><span>Produk</span> Product Knowledge</div>
@@ -596,10 +596,21 @@
               <div class="form-group"><label>Nama Produk</label><input type="text" id="aiKnowledgeName" placeholder="Contoh: Kawat Gigi Premium" /></div>
               <div class="form-group">
                 <label>Gambar Produk</label>
-                <input type="file" id="aiKnowledgeImageInput" accept="image/*" style="display:none" onchange="handleAIKnowledgeImageUpload(event)" />
                 <div class="btn-row">
-                  <button class="btn btn-secondary btn-sm" onclick="document.getElementById('aiKnowledgeImageInput').click()">Upload Gambar</button>
+                  <button class="btn btn-secondary btn-sm" type="button" onclick="openAIKnowledgeMediaPicker()">Upload Gambar</button>
+                  <button class="btn btn-secondary btn-sm" type="button" onclick="switchTab('file-manager')">Buka Media Center</button>
                   <button class="btn btn-secondary btn-sm" onclick="clearAIKnowledgeForm()">Batal</button>
+                </div>
+                <div class="hint">Saat tombol diklik, Anda akan memilih gambar langsung dari Media Center yang sudah tersimpan. Anda bisa pilih lebih dari 1 gambar untuk referensi produk.</div>
+                <div id="aiKnowledgeMediaPicker" class="ai-knowledge-media-picker" style="display:none;">
+                  <div class="btn-row" style="margin-bottom:10px;">
+                    <button class="btn btn-primary btn-sm" type="button" onclick="applyAIKnowledgeMediaSelection()">Gunakan Gambar Terpilih</button>
+                    <button class="btn btn-secondary btn-sm" type="button" onclick="loadMediaFiles().then(() => renderAIKnowledgeMediaPicker())">Refresh Media</button>
+                    <button class="btn btn-secondary btn-sm" type="button" onclick="closeAIKnowledgeMediaPicker()">Tutup</button>
+                  </div>
+                  <div id="aiKnowledgeMediaPickerList" class="media-picker-grid">
+                    <div class="empty-state-inline">Memuat gambar dari Media Center...</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1046,6 +1057,6 @@ Content-Type: application/json
     </div>
   </div>
 
-  <script src="/assets/app.js?v=20260503-otp1"></script>
+  <script src="/assets/app.js?v=20260503-ai-delay-seconds1"></script>
 </body>
 </html>

@@ -252,6 +252,13 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		AllowHeaders: "Origin, Content-Type, Accept",
 	}))
 
+	app.Use("/assets", func(c *fiber.Ctx) error {
+		c.Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Set("Pragma", "no-cache")
+		c.Set("Expires", "0")
+		return c.Next()
+	})
+
 	app.Use("/assets", filesystem.New(filesystem.Config{
 		Root:       http.FS(EmbedViews),
 		PathPrefix: "views/assets",
@@ -2731,24 +2738,37 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		products := make([]ai.ProductKnowledge, 0, len(settings.Products))
 		for _, item := range settings.Products {
 			item.ImageURL = aiProductImageURL(item.ImagePath)
+			if len(item.ImagePaths) > 0 {
+				item.ImageURLs = make([]string, 0, len(item.ImagePaths))
+				for _, path := range item.ImagePaths {
+					if url := aiProductImageURL(path); url != "" {
+						item.ImageURLs = append(item.ImageURLs, url)
+					}
+				}
+				if item.ImageURL == "" && len(item.ImageURLs) > 0 {
+					item.ImageURL = item.ImageURLs[0]
+				}
+			}
 			products = append(products, item)
 		}
 		return c.JSON(fiber.Map{
-			"enabled":             settings.Enabled,
-			"api_key":             settings.APIKey,
-			"instruction":         settings.Instruction,
-			"product_info":        settings.ProductInfo,
-			"products":            products,
-			"account_product_ids": settings.AccountProductIDs,
-			"delay_ms":            settings.DelayMs,
-			"max_history":         settings.MaxHistory,
-			"batch_window_ms":     settings.BatchWindowMs,
-			"vision_enabled":      settings.VisionEnabled,
-			"account_ids":         settings.AccountIDs,
-			"rajaongkir_enabled":  settings.RajaOngkirEnabled,
-			"rajaongkir_api_key":  settings.RajaOngkirAPIKey,
-			"rajaongkir_origin":   settings.RajaOngkirOrigin,
-			"locked":              !user.CanUseAI,
+			"enabled":               settings.Enabled,
+			"api_key":               settings.APIKey,
+			"instruction":           settings.Instruction,
+			"product_info":          settings.ProductInfo,
+			"products":              products,
+			"account_product_ids":   settings.AccountProductIDs,
+			"delay_ms":              settings.DelayMs,
+			"max_history":           settings.MaxHistory,
+			"batch_window_ms":       settings.BatchWindowMs,
+			"vision_enabled":        settings.VisionEnabled,
+			"account_ids":           settings.AccountIDs,
+			"rajaongkir_enabled":    settings.RajaOngkirEnabled,
+			"rajaongkir_api_key":    settings.RajaOngkirAPIKey,
+			"rajaongkir_origin":     settings.RajaOngkirOrigin,
+			"system_ongkir_enabled": settings.SystemOngkirEnabled,
+			"system_ongkir_origin":  settings.SystemOngkirOrigin,
+			"locked":                !user.CanUseAI,
 		})
 	})
 	api.Post("/ai/settings", func(c *fiber.Ctx) error {
@@ -2774,6 +2794,17 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		}
 		for i := range settings.Products {
 			settings.Products[i].ImageURL = aiProductImageURL(settings.Products[i].ImagePath)
+			if len(settings.Products[i].ImagePaths) > 0 {
+				settings.Products[i].ImageURLs = make([]string, 0, len(settings.Products[i].ImagePaths))
+				for _, path := range settings.Products[i].ImagePaths {
+					if url := aiProductImageURL(path); url != "" {
+						settings.Products[i].ImageURLs = append(settings.Products[i].ImageURLs, url)
+					}
+				}
+				if settings.Products[i].ImageURL == "" && len(settings.Products[i].ImageURLs) > 0 {
+					settings.Products[i].ImageURL = settings.Products[i].ImageURLs[0]
+				}
+			}
 		}
 		return c.JSON(settings)
 	})
@@ -2805,10 +2836,58 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err := c.SaveFile(fileHeader, dst); err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": "Gagal menyimpan gambar"})
 		}
+		if err := syncAIProductImageToMediaCenter(tenantCtx, dst, fileHeader.Filename, contentType, fileHeader.Size); err != nil {
+			broadcastWSLog("Sinkron media center untuk gambar produk gagal: "+err.Error(), "warning")
+		}
 		return c.JSON(fiber.Map{
 			"image_path": savedName,
 			"image_url":  aiProductImageURL(savedName),
 		})
+	})
+	api.Post("/ai/products/import-media", func(c *fiber.Ctx) error {
+		user, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		if !user.CanUseAI {
+			return c.Status(403).JSON(fiber.Map{"error": "Fitur InstaBlast AI dikunci untuk user ini"})
+		}
+		var body struct {
+			MediaIDs []int64 `json:"media_ids"`
+		}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+		if len(body.MediaIDs) == 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "Pilih minimal satu gambar dari Media Center"})
+		}
+		items := make([]fiber.Map, 0, len(body.MediaIDs))
+		for _, mediaID := range body.MediaIDs {
+			if mediaID <= 0 {
+				continue
+			}
+			file, err := tenantCtx.Store.GetMediaFileByID(mediaID)
+			if err != nil {
+				continue
+			}
+			if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(file.Mime)), "image/") {
+				continue
+			}
+			savedName, err := importMediaFileToAIProductAsset(tenantCtx, file)
+			if err != nil {
+				continue
+			}
+			items = append(items, fiber.Map{
+				"media_id":    file.ID,
+				"image_path":  savedName,
+				"image_url":   aiProductImageURL(savedName),
+				"source_name": file.OriginalName,
+			})
+		}
+		if len(items) == 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "Tidak ada gambar Media Center yang berhasil dipakai"})
+		}
+		return c.JSON(fiber.Map{"items": items})
 	})
 	api.Get("/ai/products/image/:name", func(c *fiber.Ctx) error {
 		_, tenantCtx, err := currentTenant(c)
@@ -3966,6 +4045,99 @@ func issueManagedFileName(original string) (string, error) {
 		ext = ".bin"
 	}
 	return "media-" + hex.EncodeToString(token[:]) + ext, nil
+}
+
+func syncAIProductImageToMediaCenter(tenantCtx *tenantpkg.Tenant, sourcePath, originalName, mimeType string, size int64) error {
+	if tenantCtx == nil || tenantCtx.Store == nil {
+		return fmt.Errorf("tenant tidak tersedia")
+	}
+	sourcePath = strings.TrimSpace(sourcePath)
+	if sourcePath == "" {
+		return fmt.Errorf("source path kosong")
+	}
+	managedName, err := issueManagedFileName(originalName)
+	if err != nil {
+		return err
+	}
+	mediaDir := filepath.Join(tenantCtx.BaseDir, "media-manager")
+	if err := os.MkdirAll(mediaDir, 0o755); err != nil {
+		return err
+	}
+	dst := filepath.Join(mediaDir, managedName)
+	srcFile, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		_ = dstFile.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	if err := dstFile.Close(); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	rec := storage.MediaFile{
+		Name:         managedName,
+		OriginalName: strings.TrimSpace(originalName),
+		Mime:         strings.TrimSpace(mimeType),
+		Size:         size,
+		Path:         dst,
+	}
+	if rec.Mime == "" {
+		rec.Mime = "image/jpeg"
+	}
+	if err := tenantCtx.Store.SaveMediaFile(rec); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	return nil
+}
+
+func importMediaFileToAIProductAsset(tenantCtx *tenantpkg.Tenant, file storage.MediaFile) (string, error) {
+	if tenantCtx == nil {
+		return "", fmt.Errorf("tenant tidak tersedia")
+	}
+	sourcePath := strings.TrimSpace(file.Path)
+	if sourcePath == "" {
+		return "", fmt.Errorf("path media kosong")
+	}
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(file.Mime)), "image/") {
+		return "", fmt.Errorf("media bukan gambar")
+	}
+	savedName, err := issueAIProductAssetName(file.OriginalName)
+	if err != nil {
+		return "", err
+	}
+	productDir := filepath.Join(tenantCtx.BaseDir, "ai-products")
+	if err := os.MkdirAll(productDir, 0o755); err != nil {
+		return "", err
+	}
+	dst := filepath.Join(productDir, savedName)
+	srcFile, err := os.Open(sourcePath)
+	if err != nil {
+		return "", err
+	}
+	defer srcFile.Close()
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		_ = dstFile.Close()
+		_ = os.Remove(dst)
+		return "", err
+	}
+	if err := dstFile.Close(); err != nil {
+		_ = os.Remove(dst)
+		return "", err
+	}
+	return savedName, nil
 }
 
 func mediaFileURL(name string) string {

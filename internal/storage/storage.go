@@ -721,6 +721,21 @@ func (s *Storage) GetMediaFiles() ([]MediaFile, error) {
 	return files, nil
 }
 
+func (s *Storage) GetMediaFileByID(id int64) (MediaFile, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	var item MediaFile
+	var createdAt sql.NullString
+	err := s.db.QueryRow(`SELECT id, name, original_name, mime, size, path, created_at FROM media_files WHERE id = ? LIMIT 1`, id).
+		Scan(&item.ID, &item.Name, &item.OriginalName, &item.Mime, &item.Size, &item.Path, &createdAt)
+	if err != nil {
+		return item, err
+	}
+	item.CreatedAt = parseSQLiteTime(createdAt.String)
+	return item, nil
+}
+
 func (s *Storage) SaveMediaFile(file MediaFile) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()

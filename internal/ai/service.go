@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -18,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/azkazamdigital/wa-gateway/config"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -29,7 +31,7 @@ import (
 
 const (
 	SettingsPrefKey      = "ai_settings"
-	defaultDelayMs       = 1200
+	defaultDelayMs       = 10000
 	defaultMaxHistory    = 15
 	defaultBatchWindowMs = 4500
 	visionRequestTimeout = 90 * time.Second
@@ -37,17 +39,25 @@ const (
 	maxTrackedChats      = 500
 	desktopAPIKey        = "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"
 	visionModel          = "nvidia/nemotron-nano-12b-v2-vl"
+	systemOngkirBaseURL  = "https://app.maukirim.id"
+	systemOngkirAreasURL = systemOngkirBaseURL + "/json/kecamatan001.json"
+	systemOngkirRatesURL = systemOngkirBaseURL + "/cek-ongkir/ekspedisi"
 )
 
 var (
-	reBold               = regexp.MustCompile(`\*\*(.+?)\*\*`)
-	reItalic1            = regexp.MustCompile(`__(.+?)__`)
-	reItalic2            = regexp.MustCompile(`_(.+?)_`)
-	reHeading            = regexp.MustCompile(`(?m)^#{1,6}\s+`)
-	reCodeBlock          = regexp.MustCompile("```[\\s\\S]*?```")
-	reInlineCode         = regexp.MustCompile("`(.+?)`")
-	reManyNL             = regexp.MustCompile(`\n{3,}`)
-	globalAPIKeyProvider func() string
+	reBold                = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	reItalic1             = regexp.MustCompile(`__(.+?)__`)
+	reItalic2             = regexp.MustCompile(`_(.+?)_`)
+	reHeading             = regexp.MustCompile(`(?m)^#{1,6}\s+`)
+	reCodeBlock           = regexp.MustCompile("```[\\s\\S]*?```")
+	reInlineCode          = regexp.MustCompile("`(.+?)`")
+	reManyNL              = regexp.MustCompile(`\n{3,}`)
+	globalAPIKeyProvider  func() string
+	systemOngkirAreaCache struct {
+		mu        sync.Mutex
+		expiresAt time.Time
+		rows      []systemOngkirArea
+	}
 )
 
 type PreferenceStore interface {
@@ -58,28 +68,32 @@ type PreferenceStore interface {
 type LoggerFunc func(msg, level string)
 
 type Settings struct {
-	Enabled           bool                `json:"enabled"`
-	APIKey            string              `json:"api_key"`
-	Instruction       string              `json:"instruction"`
-	ProductInfo       string              `json:"product_info"`
-	Products          []ProductKnowledge  `json:"products"`
-	AccountProductIDs map[string][]string `json:"account_product_ids"`
-	DelayMs           int                 `json:"delay_ms"`
-	MaxHistory        int                 `json:"max_history"`
-	BatchWindowMs     int                 `json:"batch_window_ms"`
-	VisionEnabled     bool                `json:"vision_enabled"`
-	AccountIDs        []string            `json:"account_ids"`
-	RajaOngkirEnabled bool                `json:"rajaongkir_enabled"`
-	RajaOngkirAPIKey  string              `json:"rajaongkir_api_key"`
-	RajaOngkirOrigin  string              `json:"rajaongkir_origin"`
+	Enabled             bool                `json:"enabled"`
+	APIKey              string              `json:"api_key"`
+	Instruction         string              `json:"instruction"`
+	ProductInfo         string              `json:"product_info"`
+	Products            []ProductKnowledge  `json:"products"`
+	AccountProductIDs   map[string][]string `json:"account_product_ids"`
+	DelayMs             int                 `json:"delay_ms"`
+	MaxHistory          int                 `json:"max_history"`
+	BatchWindowMs       int                 `json:"batch_window_ms"`
+	VisionEnabled       bool                `json:"vision_enabled"`
+	AccountIDs          []string            `json:"account_ids"`
+	RajaOngkirEnabled   bool                `json:"rajaongkir_enabled"`
+	RajaOngkirAPIKey    string              `json:"rajaongkir_api_key"`
+	RajaOngkirOrigin    string              `json:"rajaongkir_origin"`
+	SystemOngkirEnabled bool                `json:"system_ongkir_enabled"`
+	SystemOngkirOrigin  string              `json:"system_ongkir_origin"`
 }
 
 type ProductKnowledge struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Content   string `json:"content"`
-	ImagePath string `json:"image_path,omitempty"`
-	ImageURL  string `json:"image_url,omitempty"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Content    string   `json:"content"`
+	ImagePath  string   `json:"image_path,omitempty"`
+	ImageURL   string   `json:"image_url,omitempty"`
+	ImagePaths []string `json:"image_paths,omitempty"`
+	ImageURLs  []string `json:"image_urls,omitempty"`
 }
 
 type Stats struct {
@@ -164,12 +178,35 @@ type rajaOngkirCostResponse struct {
 	Data []rajaOngkirCost `json:"data"`
 }
 
+type systemOngkirArea struct {
+	ID          string
+	Province    string
+	Regency     string
+	SubDistrict string
+	Label       string
+	SearchText  string
+}
+
+type systemOngkirRate struct {
+	CourierName         string
+	ServiceName         string
+	ServiceCode         string
+	LogoURL             string
+	DiscountedCost      int
+	DiscountedCostLabel string
+	OriginalCost        int
+	OriginalCostLabel   string
+	HasDiscount         bool
+	CashbackText        string
+}
+
 type Service struct {
 	mu         sync.Mutex
 	settings   Settings
 	stats      Stats
 	histories  map[string][]chatTurn
 	pending    map[string]*pendingChat
+	assetDir   string
 	httpClient *http.Client
 	logger     LoggerFunc
 	seen       map[string]time.Time
@@ -192,6 +229,12 @@ func SetGlobalAPIKeyProvider(fn func() string) {
 	globalAPIKeyProvider = fn
 }
 
+func (s *Service) SetAssetDir(dir string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.assetDir = strings.TrimSpace(dir)
+}
+
 func defaultSettings() Settings {
 	return mergeDesktopDefaults(Settings{
 		Enabled:           false,
@@ -211,6 +254,7 @@ func sanitizeSettings(s Settings) Settings {
 	s.ProductInfo = strings.TrimSpace(s.ProductInfo)
 	s.RajaOngkirAPIKey = strings.TrimSpace(s.RajaOngkirAPIKey)
 	s.RajaOngkirOrigin = strings.TrimSpace(s.RajaOngkirOrigin)
+	s.SystemOngkirOrigin = strings.TrimSpace(s.SystemOngkirOrigin)
 	s.Products = sanitizeProducts(s.Products)
 
 	if s.DelayMs < 0 {
@@ -269,6 +313,9 @@ func (s *Service) Save(store PreferenceStore, settings Settings) (Settings, erro
 	if settings.Enabled && len(settings.AccountIDs) == 0 {
 		return settings, fmt.Errorf("Pilih minimal satu akun WhatsApp untuk InstaBlast AI")
 	}
+	if settings.SystemOngkirEnabled {
+		settings.RajaOngkirEnabled = false
+	}
 	if settings.RajaOngkirEnabled {
 		if settings.RajaOngkirAPIKey == "" {
 			return settings, fmt.Errorf("API key RajaOngkir wajib diisi saat integrasi diaktifkan")
@@ -276,6 +323,9 @@ func (s *Service) Save(store PreferenceStore, settings Settings) (Settings, erro
 		if settings.RajaOngkirOrigin == "" {
 			return settings, fmt.Errorf("Lokasi origin RajaOngkir wajib diisi saat integrasi diaktifkan")
 		}
+	}
+	if settings.SystemOngkirEnabled && settings.SystemOngkirOrigin == "" {
+		return settings, fmt.Errorf("Lokasi origin Perhitungan Ongkir Sistem wajib diisi saat fitur diaktifkan")
 	}
 	if store != nil {
 		if err := store.SetPrefJSON(SettingsPrefKey, settings); err != nil {
@@ -460,27 +510,29 @@ func (s *Service) processPendingChat(chatID string, client *whatsmeow.Client) {
 
 	s.remember(chatID, "user", memoryText, settings.MaxHistory)
 
-	if directReply, handled, directErr := s.tryAnswerRajaOngkir(context.Background(), settings, history, userText); handled {
-		if directErr != nil {
-			s.log(fmt.Sprintf("Integrasi RajaOngkir gagal untuk %s: %v", compactChatID(chatID), directErr), "warning")
-		}
-		cleaned := cleanReply(directReply)
-		if cleaned == "" {
-			cleaned = "Maaf, saya belum bisa mengambil data ongkir saat ini."
-		}
-		if err := s.sendReply(client, chatJID, cleaned, settings.DelayMs); err != nil {
-			s.setFailure(err)
-			s.log(fmt.Sprintf("AI gagal mengirim balasan RajaOngkir ke %s: %v", compactChatID(chatID), err), "error")
+	if strings.TrimSpace(userText) != "" {
+		if directReply, provider, handled, directErr := s.tryAnswerShipping(context.Background(), settings, history, userText); handled {
+			if directErr != nil {
+				s.log(fmt.Sprintf("Integrasi %s gagal untuk %s: %v", provider, compactChatID(chatID), directErr), "warning")
+			}
+			cleaned := cleanReply(directReply)
+			if cleaned == "" {
+				cleaned = "Maaf, saya belum bisa mengambil data ongkir saat ini."
+			}
+			if err := s.sendReply(client, chatJID, cleaned, settings.DelayMs); err != nil {
+				s.setFailure(err)
+				s.log(fmt.Sprintf("AI gagal mengirim balasan %s ke %s: %v", provider, compactChatID(chatID), err), "error")
+				return
+			}
+			s.remember(chatID, "assistant", cleaned, settings.MaxHistory)
+			s.mu.Lock()
+			s.stats.Replied++
+			s.stats.LastReplyAt = time.Now()
+			s.stats.LastError = ""
+			s.mu.Unlock()
+			s.log(fmt.Sprintf("AI membalas via %s ke %s", provider, compactChatID(chatID)), "success")
 			return
 		}
-		s.remember(chatID, "assistant", cleaned, settings.MaxHistory)
-		s.mu.Lock()
-		s.stats.Replied++
-		s.stats.LastReplyAt = time.Now()
-		s.stats.LastError = ""
-		s.mu.Unlock()
-		s.log(fmt.Sprintf("AI membalas via RajaOngkir ke %s", compactChatID(chatID)), "success")
-		return
 	}
 
 	reply, err := s.generateReply(context.Background(), settings, accountID, history, userText)
@@ -492,15 +544,26 @@ func (s *Service) processPendingChat(chatID string, client *whatsmeow.Client) {
 
 	cleaned := cleanReply(reply)
 	if cleaned == "" {
-		s.setFailure(fmt.Errorf("respons AI kosong"))
-		s.log(fmt.Sprintf("AI menghasilkan respons kosong untuk %s", compactChatID(chatID)), "warning")
-		return
+		fallback := buildVisionFallbackReply(userText)
+		if fallback != "" {
+			cleaned = fallback
+			s.log(fmt.Sprintf("AI menghasilkan respons kosong untuk %s, fallback vision dipakai", compactChatID(chatID)), "warning")
+		} else {
+			s.setFailure(fmt.Errorf("respons AI kosong"))
+			s.log(fmt.Sprintf("AI menghasilkan respons kosong untuk %s", compactChatID(chatID)), "warning")
+			return
+		}
 	}
 
 	if err := s.sendReply(client, chatJID, cleaned, settings.DelayMs); err != nil {
 		s.setFailure(err)
 		s.log(fmt.Sprintf("AI gagal mengirim balasan ke %s: %v", compactChatID(chatID), err), "error")
 		return
+	}
+	if product := pickProductForImageRequest(userText, history, selectProductsForAccount(settings, accountID)); product != nil {
+		if err := s.sendProductReferenceImages(client, chatJID, *product, settings.DelayMs); err != nil {
+			s.log(fmt.Sprintf("AI gagal mengirim gambar referensi ke %s: %v", compactChatID(chatID), err), "warning")
+		}
 	}
 
 	s.remember(chatID, "assistant", cleaned, settings.MaxHistory)
@@ -560,6 +623,83 @@ func (s *Service) sendReply(client *whatsmeow.Client, chatJID types.JID, reply s
 	return nil
 }
 
+func (s *Service) sendProductReferenceImages(client *whatsmeow.Client, chatJID types.JID, product ProductKnowledge, delayMs int) error {
+	if client == nil {
+		return fmt.Errorf("client nil")
+	}
+	imagePaths := productReferenceImagePaths(product)
+	if len(imagePaths) == 0 {
+		return fmt.Errorf("produk tidak memiliki gambar referensi")
+	}
+
+	baseDir := strings.TrimSpace(s.assetDir)
+	if baseDir == "" {
+		return fmt.Errorf("asset dir belum tersedia")
+	}
+
+	sent := 0
+	for idx, imageName := range imagePaths {
+		path := filepath.Join(baseDir, sanitizeProductAssetLocalName(imageName))
+		imageBytes, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		mimeType := http.DetectContentType(imageBytes)
+		caption := ""
+		if idx == 0 {
+			caption = fmt.Sprintf("Berikut gambar referensi untuk *%s* ya.", strings.TrimSpace(product.Name))
+		}
+		if delayMs > 0 {
+			time.Sleep(time.Duration(min(delayMs, 2500)) * time.Millisecond)
+		}
+		ctxSend, cancelSend := context.WithTimeout(context.Background(), 30*time.Second)
+		uploaded, err := client.Upload(ctxSend, imageBytes, whatsmeow.MediaImage)
+		cancelSend()
+		if err != nil {
+			continue
+		}
+		msg := &waProto.Message{
+			ImageMessage: &waProto.ImageMessage{
+				Caption:       proto.String(caption),
+				URL:           proto.String(uploaded.URL),
+				DirectPath:    proto.String(uploaded.DirectPath),
+				MediaKey:      uploaded.MediaKey,
+				Mimetype:      proto.String(mimeType),
+				FileEncSHA256: uploaded.FileEncSHA256,
+				FileSHA256:    uploaded.FileSHA256,
+				FileLength:    proto.Uint64(uploaded.FileLength),
+			},
+		}
+		ctxMessage, cancelMessage := context.WithTimeout(context.Background(), 30*time.Second)
+		_, err = client.SendMessage(ctxMessage, chatJID, msg)
+		cancelMessage()
+		if err != nil {
+			continue
+		}
+		sent++
+		if sent >= 5 {
+			break
+		}
+	}
+
+	if sent == 0 {
+		return fmt.Errorf("tidak ada gambar referensi yang berhasil dikirim")
+	}
+	s.log(fmt.Sprintf("AI mengirim %d gambar referensi produk %s", sent, strings.TrimSpace(product.Name)), "success")
+	return nil
+}
+
+func sanitizeProductAssetLocalName(name string) string {
+	name = strings.TrimSpace(filepath.Base(name))
+	if name == "." || name == "/" || name == `\` {
+		return ""
+	}
+	if strings.Contains(name, "/") || strings.Contains(name, `\`) {
+		return ""
+	}
+	return name
+}
+
 func (s *Service) prepareUserSegment(ctx context.Context, settings Settings, part pendingPart) (string, string) {
 	text := strings.TrimSpace(part.Text)
 	if !part.HasImage {
@@ -604,28 +744,51 @@ func (s *Service) generateReply(ctx context.Context, settings Settings, accountI
 	}
 
 	systemPrompt := buildSystemPrompt(settings, accountID)
-	messages := make([]map[string]string, 0, len(history)+2)
-	messages = append(messages, map[string]string{
+	messages := make([]map[string]interface{}, 0, len(history)+2)
+	messages = append(messages, map[string]interface{}{
 		"role":    "system",
 		"content": systemPrompt,
 	})
 	for _, turn := range clampHistory(history, settings.MaxHistory) {
-		messages = append(messages, map[string]string{
+		messages = append(messages, map[string]interface{}{
 			"role":    turn.Role,
 			"content": turn.Content,
 		})
 	}
-	messages = append(messages, map[string]string{
+	messages = append(messages, map[string]interface{}{
 		"role":    "user",
 		"content": userText,
 	})
+	return s.doNvidiaChatCompletion(ctx, apiKey, messages)
+}
 
+func (s *Service) generateReplyFromParts(ctx context.Context, settings Settings, accountID string, history []chatTurn, parts []pendingPart) (string, error) {
+	userSegments := make([]string, 0, len(parts))
+	for _, part := range parts {
+		userSegment, _ := s.prepareUserSegment(ctx, settings, part)
+		if strings.TrimSpace(userSegment) == "" {
+			continue
+		}
+		userSegments = append(userSegments, userSegment)
+	}
+	if len(userSegments) == 0 {
+		return "", fmt.Errorf("konten user tidak terbaca")
+	}
+	userText := strings.Join(userSegments, "\n")
+	if len(userSegments) > 1 {
+		userText = "Ringkas dan jawab gabungan beberapa pesan berikut:\n- " + strings.Join(userSegments, "\n- ")
+	}
+	return s.generateReply(ctx, settings, accountID, history, userText)
+}
+
+func (s *Service) doNvidiaChatCompletion(ctx context.Context, apiKey string, messages []map[string]interface{}) (string, error) {
 	payload := map[string]interface{}{
 		"model":       config.WhatsappAIModel,
 		"messages":    messages,
 		"max_tokens":  config.WhatsappAIMaxTokens,
-		"temperature": 1,
-		"top_p":       1,
+		"temperature": 1.0,
+		"top_p":       1.0,
+		"stream":      false,
 	}
 
 	body, err := json.Marshal(payload)
@@ -644,6 +807,7 @@ func (s *Service) generateReply(ctx context.Context, settings Settings, accountI
 	if err != nil {
 		return "", err
 	}
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
@@ -677,6 +841,127 @@ func (s *Service) generateReply(ctx context.Context, settings Settings, accountI
 	return parsed.Choices[0].Message.Content, nil
 }
 
+func readNvidiaAssistantStream(reader io.Reader) (string, error) {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var out strings.Builder
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, ":") || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		out.WriteString(chunk.Choices[0].Delta.Content)
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("gagal membaca stream NVIDIA AI: %w", err)
+	}
+	content := strings.TrimSpace(out.String())
+	if content == "" {
+		return "", fmt.Errorf("NVIDIA AI mengembalikan stream kosong")
+	}
+	return content, nil
+}
+
+func buildIncomingTextContext(parts []pendingPart) (string, string) {
+	userSegments := make([]string, 0, len(parts))
+	memorySegments := make([]string, 0, len(parts))
+	for _, part := range parts {
+		text := strings.TrimSpace(part.Text)
+		caption := strings.TrimSpace(part.Caption)
+		if text != "" {
+			userSegments = append(userSegments, text)
+			memorySegments = append(memorySegments, text)
+			continue
+		}
+		if caption != "" {
+			userSegments = append(userSegments, caption)
+			memorySegments = append(memorySegments, "User mengirim gambar dengan caption: "+caption)
+			continue
+		}
+		if part.HasImage {
+			memorySegments = append(memorySegments, "User mengirim gambar.")
+		}
+	}
+
+	userText := strings.Join(userSegments, "\n")
+	if len(userSegments) > 1 {
+		userText = "Ringkas dan jawab gabungan beberapa pesan berikut:\n- " + strings.Join(userSegments, "\n- ")
+	}
+	memoryText := strings.Join(memorySegments, "\n")
+	if len(memorySegments) > 1 {
+		memoryText = "Gabungan pesan user:\n- " + strings.Join(memorySegments, "\n- ")
+	}
+	return strings.TrimSpace(userText), strings.TrimSpace(memoryText)
+}
+
+func hasImagePart(parts []pendingPart) bool {
+	for _, part := range parts {
+		if part.HasImage && len(part.ImageData) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func buildOmniUserContent(parts []pendingPart) []map[string]interface{} {
+	content := make([]map[string]interface{}, 0, len(parts)*2+1)
+	hasText := false
+	for _, part := range parts {
+		text := strings.TrimSpace(part.Text)
+		caption := strings.TrimSpace(part.Caption)
+		if text != "" {
+			content = append(content, map[string]interface{}{
+				"type": "text",
+				"text": text,
+			})
+			hasText = true
+		} else if caption != "" {
+			content = append(content, map[string]interface{}{
+				"type": "text",
+				"text": caption,
+			})
+			hasText = true
+		}
+
+		if part.HasImage && len(part.ImageData) > 0 {
+			mimeType := strings.TrimSpace(part.MimeType)
+			if mimeType == "" {
+				mimeType = http.DetectContentType(part.ImageData)
+			}
+			content = append(content, map[string]interface{}{
+				"type": "image_url",
+				"image_url": map[string]string{
+					"url": fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(part.ImageData)),
+				},
+			})
+		}
+	}
+	if !hasText {
+		content = append(content, map[string]interface{}{
+			"type": "text",
+			"text": "Tolong lihat gambar yang saya kirim dan jawab pertanyaan user berdasarkan isi gambarnya dalam bahasa Indonesia yang singkat dan natural.",
+		})
+	}
+	return content
+}
+
 func (s *Service) extractImageInsight(ctx context.Context, settings Settings, imageData []byte, mimeType, caption string) (string, string, error) {
 	text, err := s.runVisionAnalysis(ctx, settings, imageData, mimeType, caption)
 	if err != nil {
@@ -686,7 +971,7 @@ func (s *Service) extractImageInsight(ctx context.Context, settings Settings, im
 	if strings.TrimSpace(text) == "" {
 		return "", "", fmt.Errorf("vision tidak menghasilkan analisa gambar")
 	}
-	return text, "ai vision", nil
+	return text, visionModel, nil
 }
 
 func (s *Service) runVisionAnalysis(ctx context.Context, settings Settings, imageData []byte, mimeType, caption string) (string, error) {
@@ -701,7 +986,7 @@ func (s *Service) runVisionAnalysis(ctx context.Context, settings Settings, imag
 		mimeType = http.DetectContentType(imageData)
 	}
 
-	prompt := "Analisa gambar ini. Jika ada teks pada gambar, salin teks pentingnya dengan akurat. Jika ini screenshot/chat/promosi/produk, ringkas poin pentingnya dalam bahasa Indonesia."
+	prompt := "Analisa gambar ini dengan teliti dalam bahasa Indonesia. Baca detail dulu sebelum menyimpulkan. Jika ada teks, salin teks penting secara akurat. Jika ada angka, harga, ukuran, warna, nama produk, nama toko, bukti transfer, resi, alamat, atau status pembayaran, sebutkan jelas. Jika ini screenshot chat/promosi/produk/dokumen, ringkas poin pentingnya secara rapi lalu simpulkan konteks utama gambar."
 	if strings.TrimSpace(caption) != "" {
 		prompt += "\nCaption user: " + strings.TrimSpace(caption)
 	}
@@ -914,10 +1199,11 @@ func buildSystemPrompt(settings Settings, accountID string) string {
 		base = "Jawab dengan singkat, jelas, natural, dan sopan dalam bahasa Indonesia."
 	}
 	parts := []string{strings.TrimSpace(base)}
-	if settings.RajaOngkirEnabled && strings.TrimSpace(settings.RajaOngkirOrigin) != "" {
+	if originText, providerLabel := activeShippingOrigin(settings); originText != "" {
 		parts = append(parts, strings.TrimSpace(fmt.Sprintf(
-			"ATURAN ONGKIR DAN ASAL PENGIRIMAN: Lokasi origin/gudang/pengirim default yang resmi adalah %s. Jika user menanyakan asal pengiriman, gudang, atau ongkir dari kota mana, gunakan origin ini sebagai sumber kebenaran utama. Jika ada info lain yang bertentangan di riwayat chat atau info produk, origin RajaOngkir ini yang harus diprioritaskan. Jangan menyebut kota asal lain selain origin ini kecuali user secara eksplisit membahas cabang lain dan Anda memang punya data pasti.",
-			settings.RajaOngkirOrigin,
+			"ATURAN ONGKIR DAN ASAL PENGIRIMAN: Lokasi origin/gudang/pengirim default yang resmi adalah %s. Jika user menanyakan asal pengiriman, gudang, atau ongkir dari kota mana, gunakan origin ini sebagai sumber kebenaran utama. Jika ada info lain yang bertentangan di riwayat chat atau info produk, origin %s ini yang harus diprioritaskan. Jangan menyebut kota asal lain selain origin ini kecuali user secara eksplisit membahas cabang lain dan Anda memang punya data pasti.",
+			originText,
+			providerLabel,
 		)))
 	}
 	if strings.TrimSpace(settings.ProductInfo) != "" {
@@ -925,21 +1211,22 @@ func buildSystemPrompt(settings Settings, accountID string) string {
 	}
 	selectedProducts := selectProductsForAccount(settings, accountID)
 	if len(selectedProducts) > 0 {
-		lines := []string{
-			"KNOWLEDGE PRODUK UNTUK AKUN INI: Gunakan hanya produk berikut sebagai acuan utama saat menjawab pertanyaan produk. Jika user bertanya produk di luar daftar ini, arahkan dengan sopan untuk cek ke admin atau CS terkait.",
+		lines := []string{}
+		if strings.TrimSpace(accountID) != "" && len(settings.AccountProductIDs[strings.TrimSpace(accountID)]) > 0 {
+			lines = append(lines, "KNOWLEDGE PRODUK UNTUK AKUN INI: Semua produk di bawah boleh dipakai sebagai acuan saat menjawab. Jika ada produk yang memang diprioritaskan untuk akun ini, dahulukan produk yang paling relevan, tetapi jangan mengabaikan knowledge produk lain yang juga ada di daftar.")
+		} else {
+			lines = append(lines, "KNOWLEDGE PRODUK: Gunakan semua produk di bawah sebagai acuan saat menjawab pertanyaan customer. Jangan mengarang di luar data yang tersedia.")
 		}
 		for idx, item := range selectedProducts {
 			lines = append(lines, fmt.Sprintf("%d. %s", idx+1, strings.TrimSpace(item.Name)))
 			if strings.TrimSpace(item.Content) != "" {
 				lines = append(lines, strings.TrimSpace(item.Content))
 			}
-			if strings.TrimSpace(item.ImagePath) != "" {
-				lines = append(lines, "Produk ini memiliki gambar referensi internal di sistem.")
+			if len(item.ImagePaths) > 0 || strings.TrimSpace(item.ImagePath) != "" {
+				lines = append(lines, "Produk ini memiliki gambar referensi internal di sistem. Jika customer meminta foto atau gambar produk, arahkan singkat lalu sistem bisa ikut mengirim gambar referensinya.")
 			}
 		}
 		parts = append(parts, strings.Join(lines, "\n"))
-	} else if len(settings.Products) > 0 && strings.TrimSpace(accountID) != "" {
-		parts = append(parts, "KNOWLEDGE PRODUK UNTUK AKUN INI: Belum ada produk yang dipilih untuk akun CS ini. Jika user bertanya detail produk, jangan mengarang. Arahkan dengan sopan agar admin mengecek produk yang sesuai.")
 	}
 	parts = append(parts, noFormatRule)
 	return strings.Join(parts, "\n\n")
@@ -957,6 +1244,20 @@ func sanitizeProducts(items []ProductKnowledge) []ProductKnowledge {
 		item.Content = strings.TrimSpace(item.Content)
 		item.ImagePath = strings.TrimSpace(item.ImagePath)
 		item.ImageURL = strings.TrimSpace(item.ImageURL)
+		item.ImagePaths = sanitizeStringList(item.ImagePaths)
+		item.ImageURLs = sanitizeStringList(item.ImageURLs)
+		if len(item.ImagePaths) == 0 && item.ImagePath != "" {
+			item.ImagePaths = []string{item.ImagePath}
+		}
+		if len(item.ImageURLs) == 0 && item.ImageURL != "" {
+			item.ImageURLs = []string{item.ImageURL}
+		}
+		if item.ImagePath == "" && len(item.ImagePaths) > 0 {
+			item.ImagePath = item.ImagePaths[0]
+		}
+		if item.ImageURL == "" && len(item.ImageURLs) > 0 {
+			item.ImageURL = item.ImageURLs[0]
+		}
 		if item.ID == "" || item.Name == "" {
 			continue
 		}
@@ -1020,6 +1321,26 @@ func sanitizeAccountProductMap(raw map[string][]string, accountIDs []string, pro
 	return result
 }
 
+func sanitizeStringList(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(items))
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	return out
+}
+
 func selectProductsForAccount(settings Settings, accountID string) []ProductKnowledge {
 	if len(settings.Products) == 0 {
 		return nil
@@ -1029,19 +1350,168 @@ func selectProductsForAccount(settings Settings, accountID string) []ProductKnow
 	}
 	ids := settings.AccountProductIDs[strings.TrimSpace(accountID)]
 	if len(ids) == 0 {
-		return nil
+		return append([]ProductKnowledge(nil), settings.Products...)
 	}
 	lookup := make(map[string]ProductKnowledge, len(settings.Products))
 	for _, item := range settings.Products {
 		lookup[item.ID] = item
 	}
-	selected := make([]ProductKnowledge, 0, len(ids))
+	selected := make([]ProductKnowledge, 0, len(settings.Products))
+	seen := make(map[string]struct{}, len(settings.Products))
 	for _, id := range ids {
 		if item, ok := lookup[id]; ok {
 			selected = append(selected, item)
+			seen[id] = struct{}{}
 		}
 	}
+	for _, item := range settings.Products {
+		if _, ok := seen[item.ID]; ok {
+			continue
+		}
+		selected = append(selected, item)
+	}
 	return selected
+}
+
+func productReferenceImagePaths(product ProductKnowledge) []string {
+	if len(product.ImagePaths) > 0 {
+		return product.ImagePaths
+	}
+	if strings.TrimSpace(product.ImagePath) != "" {
+		return []string{strings.TrimSpace(product.ImagePath)}
+	}
+	return nil
+}
+
+func pickProductForImageRequest(userText string, history []chatTurn, products []ProductKnowledge) *ProductKnowledge {
+	if len(products) == 0 || !looksLikeProductImageRequest(userText, history) {
+		return nil
+	}
+
+	searchText := normalizeHumanText(strings.TrimSpace(userText + "\n" + latestUserTurn(history)))
+	for i := range products {
+		product := products[i]
+		if len(productReferenceImagePaths(product)) == 0 {
+			continue
+		}
+		nameTokens := strings.Fields(normalizeHumanText(product.Name))
+		for _, token := range nameTokens {
+			if len(token) < 4 {
+				continue
+			}
+			if strings.Contains(searchText, token) {
+				return &products[i]
+			}
+		}
+	}
+
+	if len(products) == 1 && len(productReferenceImagePaths(products[0])) > 0 {
+		return &products[0]
+	}
+	return nil
+}
+
+func looksLikeProductImageRequest(userText string, history []chatTurn) bool {
+	combined := normalizeHumanText(strings.TrimSpace(userText + "\n" + latestUserTurn(history)))
+	patterns := []string{
+		"foto",
+		"gambar",
+		"foto produk",
+		"gambar produk",
+		"minta foto",
+		"kirim foto",
+		"kirim gambar",
+		"lihat foto",
+		"lihat gambar",
+		"foto asli",
+		"gambar asli",
+		"contoh model",
+		"katalog",
+	}
+	for _, pattern := range patterns {
+		if strings.Contains(combined, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func activeShippingOrigin(settings Settings) (string, string) {
+	if settings.SystemOngkirEnabled && strings.TrimSpace(settings.SystemOngkirOrigin) != "" {
+		return settings.SystemOngkirOrigin, "Perhitungan Ongkir Sistem"
+	}
+	if settings.RajaOngkirEnabled && strings.TrimSpace(settings.RajaOngkirOrigin) != "" {
+		return settings.RajaOngkirOrigin, "RajaOngkir"
+	}
+	return "", ""
+}
+
+func (s *Service) tryAnswerShipping(ctx context.Context, settings Settings, history []chatTurn, userText string) (string, string, bool, error) {
+	if settings.SystemOngkirEnabled {
+		reply, handled, err := s.tryAnswerSystemOngkir(ctx, settings, history, userText)
+		if handled || err != nil {
+			return reply, "Perhitungan Ongkir Sistem", handled, err
+		}
+	}
+	reply, handled, err := s.tryAnswerRajaOngkir(ctx, settings, history, userText)
+	if handled || err != nil {
+		return reply, "RajaOngkir", handled, err
+	}
+	return "", "", false, nil
+}
+
+func (s *Service) tryAnswerSystemOngkir(ctx context.Context, settings Settings, history []chatTurn, userText string) (string, bool, error) {
+	if !settings.SystemOngkirEnabled || strings.TrimSpace(settings.SystemOngkirOrigin) == "" {
+		return "", false, nil
+	}
+
+	if looksLikeOriginQuestion(userText) {
+		return fmt.Sprintf("Siap, pengiriman kami berasal dari *%s* ya.", settings.SystemOngkirOrigin), true, nil
+	}
+
+	combinedText := strings.TrimSpace(userText)
+	if !looksLikeShippingCostQuestion(userText) {
+		current := normalizeHumanText(userText)
+		if strings.Contains(current, "sesuai") || strings.Contains(current, "sekitar") {
+			if recent := latestUserTurn(history); recent != "" {
+				combinedText = strings.TrimSpace(recent + "\n" + userText)
+			}
+		}
+		if !looksLikeShippingCostQuestion(combinedText) {
+			return "", false, nil
+		}
+	}
+
+	destinationQuery := extractDestinationQuery(combinedText)
+	if destinationQuery == "" {
+		return "Siap, untuk cek ongkir yang lebih akurat kirim dulu *kecamatan/kelurahan tujuan* atau *kode pos tujuan* ya.", true, nil
+	}
+
+	weightGrams, assumedWeight := extractWeightGrams(combinedText)
+	if weightGrams <= 0 {
+		weightGrams = 1000
+		assumedWeight = true
+	}
+
+	origin, err := s.searchSystemOngkirArea(ctx, settings.SystemOngkirOrigin)
+	if err != nil {
+		return "Maaf, saya belum bisa membaca data origin pengiriman sistem saat ini. Coba sebentar lagi ya.", true, err
+	}
+	destination, err := s.searchSystemOngkirArea(ctx, destinationQuery)
+	if err != nil {
+		return fmt.Sprintf("Lokasi tujuan *%s* belum ketemu di sistem. Coba kirim *kecamatan/kelurahan* atau *kode posnya* ya biar saya cekkan lagi.", destinationQuery), true, err
+	}
+
+	rates, err := s.calculateSystemOngkir(ctx, origin.ID, destination.ID, weightGrams)
+	if err != nil {
+		return "Maaf, data ongkir sistem sedang belum bisa saya ambil sekarang. Coba kirim ulang beberapa saat lagi ya.", true, err
+	}
+	if len(rates) == 0 {
+		return fmt.Sprintf("Maaf ya, saat ini belum ada layanan ongkir yang tersedia untuk rute *%s* ke *%s*.", settings.SystemOngkirOrigin, destinationQuery), true, nil
+	}
+
+	reply := formatSystemOngkirReply(settings.SystemOngkirOrigin, origin, destination, rates, weightGrams, assumedWeight)
+	return reply, true, nil
 }
 
 func (s *Service) tryAnswerRajaOngkir(ctx context.Context, settings Settings, history []chatTurn, userText string) (string, bool, error) {
@@ -1331,6 +1801,229 @@ func (s *Service) calculateRajaOngkir(ctx context.Context, apiKey string, origin
 	return parsed.Data, nil
 }
 
+func (s *Service) fetchSystemOngkirAreas(ctx context.Context) ([]systemOngkirArea, error) {
+	systemOngkirAreaCache.mu.Lock()
+	if len(systemOngkirAreaCache.rows) > 0 && time.Now().Before(systemOngkirAreaCache.expiresAt) {
+		rows := append([]systemOngkirArea(nil), systemOngkirAreaCache.rows...)
+		systemOngkirAreaCache.mu.Unlock()
+		return rows, nil
+	}
+	systemOngkirAreaCache.mu.Unlock()
+
+	reqCtx := ctx
+	if reqCtx == nil {
+		reqCtx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(reqCtx, 25*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, systemOngkirAreasURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Referer", systemOngkirBaseURL+"/cek-ongkir")
+	req.Header.Set("User-Agent", "Mozilla/5.0 InstaBlast Ongkir")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("system ongkir area status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+
+	var payload []map[string]any
+	if err := decoder.Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	rows := make([]systemOngkirArea, 0, len(payload))
+	for _, item := range payload {
+		id := parseSystemOngkirID(item["sub_district_id"])
+		if id == "" || id == "0" {
+			continue
+		}
+		area := systemOngkirArea{
+			ID:          id,
+			Province:    strings.TrimSpace(parseSystemOngkirString(item["province"])),
+			Regency:     strings.TrimSpace(parseSystemOngkirString(item["regency"])),
+			SubDistrict: strings.TrimSpace(parseSystemOngkirString(item["sub_district"])),
+		}
+		area.Label = buildSystemOngkirLabel(area)
+		area.SearchText = normalizeLookupText(strings.Join([]string{
+			area.Province,
+			area.Regency,
+			area.SubDistrict,
+			area.ID,
+		}, " "))
+		rows = append(rows, area)
+	}
+
+	systemOngkirAreaCache.mu.Lock()
+	systemOngkirAreaCache.rows = append([]systemOngkirArea(nil), rows...)
+	systemOngkirAreaCache.expiresAt = time.Now().Add(24 * time.Hour)
+	systemOngkirAreaCache.mu.Unlock()
+	return rows, nil
+}
+
+func (s *Service) searchSystemOngkirArea(ctx context.Context, query string) (systemOngkirArea, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return systemOngkirArea{}, fmt.Errorf("empty location query")
+	}
+	rows, err := s.fetchSystemOngkirAreas(ctx)
+	if err != nil {
+		return systemOngkirArea{}, err
+	}
+	normalized := normalizeLookupText(query)
+	if len(normalized) < 2 {
+		return systemOngkirArea{}, fmt.Errorf("location query too short")
+	}
+
+	for _, item := range rows {
+		if strings.Contains(item.SearchText, normalized) {
+			return item, nil
+		}
+	}
+
+	tokens := strings.Fields(normalized)
+	for _, item := range rows {
+		matched := true
+		for _, token := range tokens {
+			if !strings.Contains(item.SearchText, token) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return item, nil
+		}
+	}
+
+	return systemOngkirArea{}, fmt.Errorf("system ongkir destination not found for %s", query)
+}
+
+func (s *Service) calculateSystemOngkir(ctx context.Context, originID, destinationID string, weightGrams int) ([]systemOngkirRate, error) {
+	originID = strings.TrimSpace(originID)
+	destinationID = strings.TrimSpace(destinationID)
+	if originID == "" || destinationID == "" {
+		return nil, fmt.Errorf("invalid origin/destination id")
+	}
+	if weightGrams <= 0 {
+		weightGrams = 1000
+	}
+
+	reqCtx := ctx
+	if reqCtx == nil {
+		reqCtx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(reqCtx, 25*time.Second)
+	defer cancel()
+
+	requestURL, err := url.Parse(systemOngkirRatesURL)
+	if err != nil {
+		return nil, err
+	}
+	query := requestURL.Query()
+	query.Set("addressIdPengirim", originID)
+	query.Set("addressIdPenerima", destinationID)
+	query.Set("beratBarang", strconv.Itoa(weightGrams))
+	requestURL.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, requestURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "text/html, */*")
+	req.Header.Set("Referer", systemOngkirBaseURL+"/cek-ongkir")
+	req.Header.Set("User-Agent", "Mozilla/5.0 InstaBlast Ongkir")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("system ongkir rates status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	return parseSystemOngkirRateCards(string(body))
+}
+
+func parseSystemOngkirRateCards(htmlText string) ([]systemOngkirRate, error) {
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(`<section id="engine-root">` + htmlText + `</section>`))
+	if err != nil {
+		return nil, err
+	}
+
+	rates := make([]systemOngkirRate, 0)
+	doc.Find("#engine-root a.btn.btn-outline-primary").Each(func(_ int, selection *goquery.Selection) {
+		metaText := selection.NextFiltered("div").Text()
+		meta := parsePseudoPHPArray(metaText)
+		strongSpans := selection.Find("span.fw-bold.text-danger")
+		serviceName := strings.TrimSpace(textAtSelection(strongSpans, 0))
+		if serviceName == "" {
+			serviceName = strings.TrimSpace(firstNonEmpty(meta["name"], meta["code"]))
+		}
+		displayedPrice := strings.TrimSpace(textAtSelection(strongSpans, 1))
+		cashbackText := strings.Join(strings.Fields(selection.Find("small.text-info").Text()), " ")
+		logoURL, _ := selection.Find("img").Attr("src")
+		courierName, _ := selection.Find("img").Attr("alt")
+		if strings.TrimSpace(courierName) == "" {
+			courierName = serviceName
+		}
+		discountedCost := parseIDRValue(meta["cost"])
+		originalCost := parseIDRValue(meta["old_cost"])
+		if serviceName == "" && strongSpans.Length() == 0 {
+			return
+		}
+		rates = append(rates, systemOngkirRate{
+			CourierName:         strings.TrimSpace(courierName),
+			ServiceName:         serviceName,
+			ServiceCode:         strings.TrimSpace(meta["code"]),
+			LogoURL:             strings.TrimSpace(logoURL),
+			DiscountedCost:      discountedCost,
+			DiscountedCostLabel: firstNonEmpty(formatOptionalIDR(discountedCost), displayedPrice),
+			OriginalCost:        originalCost,
+			OriginalCostLabel:   formatOptionalIDR(originalCost),
+			HasDiscount:         discountedCost > 0 && originalCost > 0 && discountedCost < originalCost,
+			CashbackText:        strings.TrimSpace(cashbackText),
+		})
+	})
+
+	sort.Slice(rates, func(i, j int) bool {
+		left := rates[i].DiscountedCost
+		right := rates[j].DiscountedCost
+		if left <= 0 {
+			left = int(^uint(0) >> 1)
+		}
+		if right <= 0 {
+			right = int(^uint(0) >> 1)
+		}
+		if left == right {
+			return strings.Compare(rates[i].CourierName+rates[i].ServiceName, rates[j].CourierName+rates[j].ServiceName) < 0
+		}
+		return left < right
+	})
+	return rates, nil
+}
+
 func formatRajaOngkirReply(originText string, origin, destination rajaOngkirDestination, costs []rajaOngkirCost, weightGrams int, assumedWeight bool) string {
 	lines := []string{
 		fmt.Sprintf("Siap, saya bantu cek estimasi ongkir dari *%s* ke *%s* ya.", originText, compactDestinationLabel(destination)),
@@ -1353,6 +2046,43 @@ func formatRajaOngkirReply(originText string, origin, destination rajaOngkirDest
 		lines = append(lines, "Kalau Anda kirim *berat paket* yang pasti, saya bisa hitungkan lagi biar lebih akurat.")
 	}
 	lines = append(lines, "Kalau mau, saya lanjut bantu cekkan kurir yang paling hemat atau yang paling cepat.")
+	return strings.Join(lines, "\n")
+}
+
+func formatSystemOngkirReply(originText string, origin, destination systemOngkirArea, rates []systemOngkirRate, weightGrams int, assumedWeight bool) string {
+	lines := []string{
+		fmt.Sprintf("Siap, saya bantu cek estimasi ongkir dari *%s* ke *%s* ya.", originText, destination.Label),
+	}
+	if assumedWeight {
+		lines = append(lines, fmt.Sprintf("Untuk sementara saya hitungkan dengan asumsi berat *%s* dulu.", formatWeight(weightGrams)))
+	} else {
+		lines = append(lines, fmt.Sprintf("Berikut estimasi untuk berat *%s*.", formatWeight(weightGrams)))
+	}
+	limit := 4
+	if len(rates) < limit {
+		limit = len(rates)
+	}
+	for i := 0; i < limit; i++ {
+		item := rates[i]
+		serviceLabel := strings.TrimSpace(strings.Join([]string{strings.ToUpper(strings.TrimSpace(item.ServiceCode)), item.ServiceName}, " "))
+		if serviceLabel == "" {
+			serviceLabel = strings.TrimSpace(item.CourierName)
+		}
+		priceLabel := firstNonEmpty(item.DiscountedCostLabel, formatOptionalIDR(item.DiscountedCost))
+		line := fmt.Sprintf("- *%s*: Rp%s", serviceLabel, priceLabel)
+		if item.HasDiscount && item.OriginalCostLabel != "" {
+			line += fmt.Sprintf(" (normal Rp%s)", item.OriginalCostLabel)
+		}
+		if item.CashbackText != "" {
+			line += fmt.Sprintf(" - %s", item.CashbackText)
+		}
+		lines = append(lines, line)
+	}
+	lines = append(lines, fmt.Sprintf("Origin yang dipakai sistem: *%s*.", origin.Label))
+	if assumedWeight {
+		lines = append(lines, "Kalau Anda kirim *berat paket* yang pasti, saya bisa hitungkan lagi biar lebih akurat.")
+	}
+	lines = append(lines, "Kalau mau, saya lanjut bantu pilihkan ongkir yang paling hemat.")
 	return strings.Join(lines, "\n")
 }
 
@@ -1397,6 +2127,98 @@ func formatWeight(weightGrams int) string {
 		return fmt.Sprintf("%d kg", weightGrams/1000)
 	}
 	return fmt.Sprintf("%d gram", weightGrams)
+}
+
+func buildSystemOngkirLabel(area systemOngkirArea) string {
+	parts := []string{area.Province, area.Regency, area.SubDistrict}
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			filtered = append(filtered, titleCaseWords(part))
+		}
+	}
+	return strings.Join(filtered, ", ")
+}
+
+func normalizeLookupText(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	replacer := strings.NewReplacer("\r", " ", "\n", " ", "\t", " ", ",", " ", ".", " ", "?", " ", "!", " ", ":", " ", ";", " ", "-", " ", "/", " ")
+	value = replacer.Replace(value)
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func parseSystemOngkirString(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case json.Number:
+		return typed.String()
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+func parseSystemOngkirID(value any) string {
+	id := strings.TrimSpace(parseSystemOngkirString(value))
+	if strings.HasSuffix(id, ".0") {
+		id = strings.TrimSuffix(id, ".0")
+	}
+	return id
+}
+
+func parsePseudoPHPArray(raw string) map[string]string {
+	matches := regexp.MustCompile(`\[(.+?)\]\s*=>\s*(.+)`).FindAllStringSubmatch(raw, -1)
+	result := make(map[string]string, len(matches))
+	for _, match := range matches {
+		if len(match) < 3 {
+			continue
+		}
+		result[strings.TrimSpace(match[1])] = strings.TrimSpace(match[2])
+	}
+	return result
+}
+
+func parseIDRValue(value string) int {
+	digits := regexp.MustCompile(`[^\d]`).ReplaceAllString(strings.TrimSpace(value), "")
+	if digits == "" {
+		return 0
+	}
+	parsed, err := strconv.Atoi(digits)
+	if err != nil {
+		return 0
+	}
+	return parsed
+}
+
+func formatOptionalIDR(value int) string {
+	if value <= 0 {
+		return ""
+	}
+	return formatIDR(value)
+}
+
+func textAtSelection(list *goquery.Selection, index int) string {
+	if list == nil || index < 0 {
+		return ""
+	}
+	item := list.Eq(index)
+	if item.Length() == 0 {
+		return ""
+	}
+	return item.Text()
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func formatIDR(value int) string {
@@ -1593,6 +2415,63 @@ func truncateSingleLine(text string, limit int) string {
 	}
 	runes := []rune(text)
 	return strings.TrimSpace(string(runes[:limit])) + "..."
+}
+
+func buildVisionFallbackReply(userText string) string {
+	if !strings.Contains(userText, "Berikut analisa gambar yang dikirim user:") {
+		return ""
+	}
+
+	visionText := cleanVisionText(extractVisionAnalysisBlock(userText))
+	if visionText == "" {
+		return "Saya sudah cek gambar yang Anda kirim. Kalau ada bagian tertentu yang ingin ditanyakan, langsung tulis ya."
+	}
+
+	normalized := normalizeHumanText(visionText)
+	switch {
+	case strings.Contains(normalized, "pembayaran qris berhasil"),
+		strings.Contains(normalized, "transaksi qris"),
+		(strings.Contains(normalized, "qris") && strings.Contains(normalized, "berhasil")),
+		(strings.Contains(normalized, "pembayaran") && strings.Contains(normalized, "berhasil")):
+		return "Saya sudah cek gambarnya. Terlihat bukti *pembayaran berhasil*. Kalau ini untuk konfirmasi order, data Anda sudah kami terima ya."
+	case strings.Contains(normalized, "poster"),
+		strings.Contains(normalized, "promo"),
+		strings.Contains(normalized, "produk"):
+		return "Saya sudah cek gambar yang Anda kirim. Terlihat ada info *produk atau promo*. Kalau mau, saya bantu jelaskan detailnya."
+	default:
+		summary := truncateSingleLine(stripVisionFormatting(visionText), 180)
+		if summary == "" {
+			return "Saya sudah cek gambar yang Anda kirim. Kalau ada bagian tertentu yang ingin ditanyakan, langsung tulis ya."
+		}
+		return "Saya sudah cek gambarnya. Ringkasnya terlihat: " + summary + ". Kalau mau, saya bantu jelaskan lebih detail."
+	}
+}
+
+func extractVisionAnalysisBlock(userText string) string {
+	startMarker := "Berikut analisa gambar yang dikirim user:"
+	start := strings.Index(userText, startMarker)
+	if start < 0 {
+		return ""
+	}
+	block := strings.TrimSpace(userText[start+len(startMarker):])
+	block = strings.TrimPrefix(block, "---")
+	endMarker := "\n---\nJawab user berdasarkan isi gambar tersebut."
+	if end := strings.Index(block, endMarker); end >= 0 {
+		block = block[:end]
+	} else if end := strings.Index(block, "\nJawab user berdasarkan isi gambar tersebut."); end >= 0 {
+		block = block[:end]
+	}
+	return strings.TrimSpace(strings.Trim(block, "- \n"))
+}
+
+func stripVisionFormatting(text string) string {
+	text = reBold.ReplaceAllString(text, `$1`)
+	text = reItalic1.ReplaceAllString(text, `$1`)
+	text = reItalic2.ReplaceAllString(text, `$1`)
+	text = reHeading.ReplaceAllString(text, "")
+	text = reInlineCode.ReplaceAllString(text, `$1`)
+	text = strings.ReplaceAll(text, "*", "")
+	return strings.TrimSpace(text)
 }
 
 func splitReply(text string) []string {

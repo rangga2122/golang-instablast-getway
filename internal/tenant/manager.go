@@ -68,6 +68,7 @@ func (m *Manager) Get(user storage.AppUser) (*Tenant, error) {
 		return nil, err
 	}
 	aiSvc := ai.NewService(m.logFn)
+	aiSvc.SetAssetDir(filepath.Join(dir, "ai-products"))
 	_ = aiSvc.Load(store)
 	chatSvc := chathistory.NewService(store)
 

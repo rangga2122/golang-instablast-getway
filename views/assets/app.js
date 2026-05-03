@@ -33,7 +33,8 @@ let activeWAAccountId = '';
 let aiSelectedAccountIDs = [];
 let aiKnowledgeProducts = [];
 let aiAccountProductIDs = {};
-let aiKnowledgeImageDraft = null;
+let aiKnowledgeImageDraft = [];
+let selectedAIKnowledgeMediaIDs = [];
 let aiSelectedKnowledgeID = '';
 let aiKnowledgeMappingAccountID = '';
 let currentUser = null;
@@ -57,6 +58,16 @@ let latestBroadcastProgress = null;
 let historyQueueSchedulesCache = [];
 let broadcastAIImprovedDraft = '';
 let broadcastSpintaxOriginalMessage = '';
+const aiInstructionProfiles = {
+  ramah: 'Jawab singkat, ramah, sopan, hangat, dan mudah dipahami dalam bahasa Indonesia. Fokus bantu customer tanpa bertele-tele.',
+  profesional: 'Jawab singkat, profesional, jelas, rapi, dan sopan dalam bahasa Indonesia. Hindari candaan berlebihan dan tetap to the point.',
+  soft_selling: 'Jawab singkat, ramah, dan halus mengarahkan ke closing dalam bahasa Indonesia. Jangan memaksa, tapi tetap bantu customer mengambil keputusan.',
+  konsultatif: 'Jawab singkat, konsultatif, edukatif, dan membantu dalam bahasa Indonesia. Gali kebutuhan customer seperlunya lalu beri saran yang relevan.',
+  fast_response: 'Jawab singkat, cepat, langsung ke inti, dan tetap sopan dalam bahasa Indonesia. Utamakan respons yang praktis dan mudah dipahami.',
+  santai: 'Jawab singkat, santai, natural, akrab, dan tetap sopan dalam bahasa Indonesia. Jangan terlalu formal, tapi tetap jelas.',
+  tegas: 'Jawab singkat, tegas, jelas, dan sopan dalam bahasa Indonesia. Sampaikan informasi penting tanpa berputar-putar.',
+  closing: 'Jawab singkat, persuasif, ramah, dan fokus closing dalam bahasa Indonesia. Tekankan manfaat, kejelasan order, dan langkah lanjut yang mudah.'
+};
 
 // ===== Toast =====
 function showToast(msg, type) {
@@ -388,7 +399,20 @@ function normalizeAIKnowledgeProducts(items) {
       content: String(item.content || '').trim(),
       image_path: String(item.image_path || '').trim(),
       image_url: String(item.image_url || '').trim(),
+      image_paths: Array.from(new Set((Array.isArray(item.image_paths) ? item.image_paths : [])
+        .map(path => String(path || '').trim())
+        .filter(Boolean))),
+      image_urls: Array.from(new Set((Array.isArray(item.image_urls) ? item.image_urls : [])
+        .map(url => String(url || '').trim())
+        .filter(Boolean))),
     }))
+    .map(item => {
+      if (!item.image_paths.length && item.image_path) item.image_paths = [item.image_path];
+      if (!item.image_urls.length && item.image_url) item.image_urls = [item.image_url];
+      if (!item.image_path && item.image_paths.length) item.image_path = item.image_paths[0];
+      if (!item.image_url && item.image_urls.length) item.image_url = item.image_urls[0];
+      return item;
+    })
     .filter(item => item.id && item.name);
 }
 
@@ -409,26 +433,28 @@ function normalizeAIAccountProductMap(raw) {
 function renderAIKnowledgeImagePreview() {
   const preview = $('aiKnowledgeImagePreview');
   if (!preview) return;
-  const draft = aiKnowledgeImageDraft;
-  if (!draft && !$('aiKnowledgeEditingId')?.value) {
+  const draft = Array.isArray(aiKnowledgeImageDraft) ? aiKnowledgeImageDraft : [];
+  if (!draft.length && !$('aiKnowledgeEditingId')?.value) {
     preview.innerHTML = '';
     return;
   }
 
-  const current = draft || aiKnowledgeProducts.find(item => item.id === $('aiKnowledgeEditingId')?.value);
+  const current = draft.length ? { image_urls: draft.map(item => item.image_url || '').filter(Boolean), image_paths: draft.map(item => item.image_path || '').filter(Boolean), name: $('aiKnowledgeName')?.value?.trim() || 'Gambar produk' } : aiKnowledgeProducts.find(item => item.id === $('aiKnowledgeEditingId')?.value);
   if (!current) {
     preview.innerHTML = '';
     return;
   }
 
-  const imageURL = current.image_url || '';
+  const imageURLs = Array.isArray(current.image_urls) && current.image_urls.length ? current.image_urls : (current.image_url ? [current.image_url] : []);
   const imageName = current.name || 'Gambar produk';
   preview.innerHTML = `
     <div class="ai-knowledge-image-preview-card">
-      ${imageURL ? `<img src="${escapeHtml(imageURL)}" alt="${escapeHtml(imageName)}" class="ai-knowledge-preview-thumb" />` : ''}
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        ${imageURLs.map((url, index) => `<img src="${escapeHtml(url)}" alt="${escapeHtml(imageName)} ${index + 1}" class="ai-knowledge-preview-thumb" />`).join('')}
+      </div>
       <div>
         <div class="ai-knowledge-preview-title">${escapeHtml(imageName)}</div>
-        <div class="ai-knowledge-preview-meta">${imageURL ? 'Gambar siap dipakai untuk product knowledge ini.' : 'Belum ada gambar.'}</div>
+        <div class="ai-knowledge-preview-meta">${imageURLs.length ? `${imageURLs.length} gambar siap dipakai untuk product knowledge ini.` : 'Belum ada gambar.'}</div>
       </div>
     </div>
   `;
@@ -469,7 +495,7 @@ function renderAIKnowledgeDetail() {
 
   wrap.innerHTML = `
     <div class="ai-knowledge-detail-card">
-      ${item.image_url ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.name)}" class="ai-knowledge-detail-thumb" />` : '<div class="ai-knowledge-detail-thumb ai-knowledge-card-thumb-empty">No Image</div>'}
+      ${(item.image_urls && item.image_urls.length) ? `<div style="display:flex; gap:10px; flex-wrap:wrap;">${item.image_urls.map((url, index) => `<img src="${escapeHtml(url)}" alt="${escapeHtml(item.name)} ${index + 1}" class="ai-knowledge-detail-thumb" />`).join('')}</div>` : '<div class="ai-knowledge-detail-thumb ai-knowledge-card-thumb-empty">No Image</div>'}
       <div class="ai-knowledge-detail-body">
         <strong>${escapeHtml(item.name)}</strong>
         <div>${escapeHtml(item.content || '').replace(/\n/g, '<br>')}</div>
@@ -532,7 +558,7 @@ function renderAIAccountKnowledgeMatrix() {
     return;
   }
 
-  const selected = new Set(aiAccountProductIDs[acc.id] || []);
+  const selected = new Set(getEffectiveAIProductIDsForAccount(acc.id));
   const phone = acc.phone || acc.jid || '-';
   wrap.innerHTML = `
     <div class="ai-account-mapping-card">
@@ -578,13 +604,26 @@ function handleAIKnowledgeAccountSelect(accountID) {
   renderAIAccountKnowledgeMatrix();
 }
 
+function getEffectiveAIProductIDsForAccount(accountID) {
+  const key = String(accountID || '').trim();
+  if (!key) {
+    return aiKnowledgeProducts.map(item => item.id);
+  }
+  const mapped = Array.isArray(aiAccountProductIDs[key]) ? aiAccountProductIDs[key].filter(Boolean) : [];
+  if (mapped.length) {
+    return mapped;
+  }
+  return aiKnowledgeProducts.map(item => item.id);
+}
+
 function clearAIKnowledgeForm() {
   if ($('aiKnowledgeEditingId')) $('aiKnowledgeEditingId').value = '';
   if ($('aiKnowledgeName')) $('aiKnowledgeName').value = '';
   if ($('aiKnowledgeContent')) $('aiKnowledgeContent').value = '';
-  if ($('aiKnowledgeImageInput')) $('aiKnowledgeImageInput').value = '';
-  aiKnowledgeImageDraft = null;
+  aiKnowledgeImageDraft = [];
+  selectedAIKnowledgeMediaIDs = [];
   renderAIKnowledgeImagePreview();
+  closeAIKnowledgeMediaPicker();
   if ($('aiKnowledgeEditor')) $('aiKnowledgeEditor').style.display = 'none';
 }
 
@@ -594,19 +633,22 @@ function editAIKnowledgeProduct(productID) {
   if ($('aiKnowledgeEditingId')) $('aiKnowledgeEditingId').value = item.id;
   if ($('aiKnowledgeName')) $('aiKnowledgeName').value = item.name || '';
   if ($('aiKnowledgeContent')) $('aiKnowledgeContent').value = item.content || '';
-  aiKnowledgeImageDraft = {
-    image_path: item.image_path || '',
-    image_url: item.image_url || '',
+  aiKnowledgeImageDraft = (item.image_paths || []).map((path, index) => ({
+    image_path: path || '',
+    image_url: (item.image_urls || [])[index] || '',
     name: item.name || '',
-  };
+  }));
   if ($('aiKnowledgeEditor')) $('aiKnowledgeEditor').style.display = 'block';
   renderAIKnowledgeImagePreview();
 }
 
-function deleteAIKnowledgeProduct(productID) {
+async function deleteAIKnowledgeProduct(productID) {
   const item = aiKnowledgeProducts.find(product => product.id === productID);
   if (!item) return;
   if (!confirm(`Hapus product knowledge "${item.name}"?`)) return;
+  const prevProducts = [...aiKnowledgeProducts];
+  const prevMap = JSON.parse(JSON.stringify(aiAccountProductIDs || {}));
+  const prevSelected = aiSelectedKnowledgeID;
   aiKnowledgeProducts = aiKnowledgeProducts.filter(product => product.id !== productID);
   Object.keys(aiAccountProductIDs).forEach(accountID => {
     aiAccountProductIDs[accountID] = (aiAccountProductIDs[accountID] || []).filter(id => id !== productID);
@@ -619,16 +661,30 @@ function deleteAIKnowledgeProduct(productID) {
   }
   renderAIKnowledgeList();
   renderAIAccountKnowledgeMatrix();
-  showToast('Product knowledge dihapus. Klik Simpan AI agar perubahan aktif.', 'success');
+  try {
+    await saveAISettings(true);
+    showToast('Product knowledge berhasil dihapus', 'success');
+  } catch (e) {
+    aiKnowledgeProducts = prevProducts;
+    aiAccountProductIDs = prevMap;
+    aiSelectedKnowledgeID = prevSelected;
+    renderAIKnowledgeList();
+    renderAIAccountKnowledgeMatrix();
+    showToast('Gagal menghapus product knowledge: ' + e.message, 'error');
+  }
 }
 
 function toggleAIProductForAccount(accountID, productID, checked) {
-  const current = new Set(aiAccountProductIDs[accountID] || []);
+  const allIDs = aiKnowledgeProducts.map(item => item.id).filter(Boolean);
+  const current = new Set(getEffectiveAIProductIDsForAccount(accountID));
   if (checked) current.add(productID);
   else current.delete(productID);
   const next = Array.from(current);
-  if (next.length) aiAccountProductIDs[accountID] = next;
-  else delete aiAccountProductIDs[accountID];
+  if (!allIDs.length || !next.length || next.length === allIDs.length) {
+    delete aiAccountProductIDs[accountID];
+    return;
+  }
+  aiAccountProductIDs[accountID] = allIDs.filter(id => current.has(id));
 }
 
 async function uploadAIKnowledgeImage(file) {
@@ -650,25 +706,102 @@ async function uploadAIKnowledgeImage(file) {
 }
 
 async function handleAIKnowledgeImageUpload(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
   try {
-    const uploaded = await uploadAIKnowledgeImage(file);
-    aiKnowledgeImageDraft = {
-      image_path: uploaded.image_path || '',
-      image_url: uploaded.image_url || '',
-      name: file.name,
-    };
+    const uploadedItems = [];
+    for (const file of files) {
+      const uploaded = await uploadAIKnowledgeImage(file);
+      uploadedItems.push({
+        image_path: uploaded.image_path || '',
+        image_url: uploaded.image_url || '',
+        name: file.name,
+      });
+    }
+    aiKnowledgeImageDraft = [...(Array.isArray(aiKnowledgeImageDraft) ? aiKnowledgeImageDraft : []), ...uploadedItems];
     renderAIKnowledgeImagePreview();
-    showToast('Gambar produk berhasil diupload', 'success');
+    showToast(`${uploadedItems.length} gambar produk berhasil diupload`, 'success');
   } catch (e) {
-    aiKnowledgeImageDraft = null;
-    renderAIKnowledgeImagePreview();
     showToast(e.message, 'error');
+  }
+  if ($('aiKnowledgeImageInput')) $('aiKnowledgeImageInput').value = '';
+}
+
+async function openAIKnowledgeMediaPicker() {
+  selectedAIKnowledgeMediaIDs = [];
+  const picker = $('aiKnowledgeMediaPicker');
+  if (picker) picker.style.display = 'block';
+  if (!mediaFiles.length) {
+    await loadMediaFiles();
+  }
+  renderAIKnowledgeMediaPicker();
+}
+
+function closeAIKnowledgeMediaPicker() {
+  const picker = $('aiKnowledgeMediaPicker');
+  if (picker) picker.style.display = 'none';
+}
+
+function renderAIKnowledgeMediaPicker() {
+  const box = $('aiKnowledgeMediaPickerList');
+  if (!box) return;
+  const imageFiles = mediaFiles.filter(file => String(file.mime || '').toLowerCase().startsWith('image/'));
+  if (!imageFiles.length) {
+    box.innerHTML = '<div class="empty-state-inline">Belum ada gambar di Media Center. Tambahkan dulu di menu Media Center.</div>';
+    return;
+  }
+  box.innerHTML = imageFiles.map(file => {
+    const checked = selectedAIKnowledgeMediaIDs.includes(Number(file.id)) ? 'checked' : '';
+    return `
+      <label class="media-picker-item">
+        <input type="checkbox" value="${Number(file.id)}" ${checked} onchange="toggleAIKnowledgeMediaSelection(${Number(file.id)}, this.checked)" />
+        <span class="media-picker-thumb">${renderMediaThumb(file)}</span>
+        <span>${escapeHtml(file.original_name || file.name)}</span>
+      </label>
+    `;
+  }).join('');
+}
+
+function toggleAIKnowledgeMediaSelection(id, checked) {
+  const next = new Set(selectedAIKnowledgeMediaIDs.map(Number).filter(Boolean));
+  if (checked) next.add(Number(id));
+  else next.delete(Number(id));
+  selectedAIKnowledgeMediaIDs = Array.from(next);
+}
+
+async function applyAIKnowledgeMediaSelection() {
+  if (!selectedAIKnowledgeMediaIDs.length) {
+    showToast('Pilih minimal satu gambar dari Media Center', 'error');
+    return;
+  }
+  try {
+    const data = await api('/ai/products/import-media', {
+      method: 'POST',
+      body: JSON.stringify({ media_ids: selectedAIKnowledgeMediaIDs })
+    });
+    const items = Array.isArray(data.items) ? data.items : [];
+    if (!items.length) {
+      throw new Error('Tidak ada gambar yang berhasil dipakai');
+    }
+    aiKnowledgeImageDraft = [
+      ...(Array.isArray(aiKnowledgeImageDraft) ? aiKnowledgeImageDraft : []),
+      ...items.map(item => ({
+        image_path: item.image_path || '',
+        image_url: item.image_url || '',
+        name: item.source_name || 'Gambar produk',
+      }))
+    ];
+    selectedAIKnowledgeMediaIDs = [];
+    renderAIKnowledgeImagePreview();
+    renderAIKnowledgeMediaPicker();
+    closeAIKnowledgeMediaPicker();
+    showToast(`${items.length} gambar dari Media Center berhasil dipakai`, 'success');
+  } catch (e) {
+    showToast('Gagal memakai gambar Media Center: ' + e.message, 'error');
   }
 }
 
-function saveAIKnowledgeProduct() {
+async function saveAIKnowledgeProduct() {
   const editingID = $('aiKnowledgeEditingId')?.value?.trim() || '';
   const name = $('aiKnowledgeName')?.value?.trim() || '';
   const content = $('aiKnowledgeContent')?.value?.trim() || '';
@@ -686,10 +819,15 @@ function saveAIKnowledgeProduct() {
     id: editingID || `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     name,
     content,
-    image_path: aiKnowledgeImageDraft?.image_path || '',
-    image_url: aiKnowledgeImageDraft?.image_url || '',
+    image_paths: (Array.isArray(aiKnowledgeImageDraft) ? aiKnowledgeImageDraft : []).map(item => item.image_path || '').filter(Boolean),
+    image_urls: (Array.isArray(aiKnowledgeImageDraft) ? aiKnowledgeImageDraft : []).map(item => item.image_url || '').filter(Boolean),
   };
+  nextItem.image_path = nextItem.image_paths[0] || '';
+  nextItem.image_url = nextItem.image_urls[0] || '';
 
+  const prevProducts = [...aiKnowledgeProducts];
+  const prevMap = JSON.parse(JSON.stringify(aiAccountProductIDs || {}));
+  const prevSelected = aiSelectedKnowledgeID;
   if (editingID) {
     aiKnowledgeProducts = aiKnowledgeProducts.map(item => item.id === editingID ? nextItem : item);
   } else {
@@ -700,14 +838,49 @@ function saveAIKnowledgeProduct() {
   aiAccountProductIDs = normalizeAIAccountProductMap(aiAccountProductIDs);
   renderAIKnowledgeList();
   renderAIAccountKnowledgeMatrix();
-  clearAIKnowledgeForm();
-  showToast(editingID ? 'Product knowledge diperbarui. Klik Simpan AI agar aktif.' : 'Product knowledge ditambahkan. Klik Simpan AI agar aktif.', 'success');
+  try {
+    await saveAISettings(true);
+    clearAIKnowledgeForm();
+    showToast(editingID ? 'Product knowledge berhasil diperbarui' : 'Product knowledge berhasil disimpan', 'success');
+  } catch (e) {
+    aiKnowledgeProducts = prevProducts;
+    aiAccountProductIDs = prevMap;
+    aiSelectedKnowledgeID = prevSelected;
+    renderAIKnowledgeList();
+    renderAIAccountKnowledgeMatrix();
+    showToast('Gagal menyimpan product knowledge: ' + e.message, 'error');
+  }
+}
+
+function applyAIInstructionProfile(value) {
+  const key = String(value || '').trim();
+  if (!key || !aiInstructionProfiles[key] || !$('aiInstruction')) return;
+  $('aiInstruction').value = aiInstructionProfiles[key];
 }
 
 function syncRajaOngkirFields() {
-  const enabled = $('aiRajaOngkirEnabled')?.checked || false;
-  const wrap = $('aiRajaOngkirFields');
-  if (wrap) wrap.style.display = enabled ? 'block' : 'none';
+  const systemEnabled = $('aiSystemOngkirEnabled')?.checked || false;
+  const rajaEnabled = $('aiRajaOngkirEnabled')?.checked || false;
+  const rajaWrap = $('aiRajaOngkirFields');
+  const systemWrap = $('aiSystemOngkirFields');
+  if (rajaWrap) rajaWrap.style.display = rajaEnabled ? 'block' : 'none';
+  if (systemWrap) systemWrap.style.display = systemEnabled ? 'block' : 'none';
+  if ($('aiRajaOngkirEnabled')) $('aiRajaOngkirEnabled').disabled = systemEnabled;
+  if ($('aiSystemOngkirEnabled')) $('aiSystemOngkirEnabled').disabled = rajaEnabled;
+}
+
+function handleAISystemOngkirToggle() {
+  if ($('aiSystemOngkirEnabled')?.checked && $('aiRajaOngkirEnabled')) {
+    $('aiRajaOngkirEnabled').checked = false;
+  }
+  syncRajaOngkirFields();
+}
+
+function handleAIRajaOngkirToggle() {
+  if ($('aiRajaOngkirEnabled')?.checked && $('aiSystemOngkirEnabled')) {
+    $('aiSystemOngkirEnabled').checked = false;
+  }
+  syncRajaOngkirFields();
 }
 
 function renderAccountSwitcher() {
@@ -3410,19 +3583,21 @@ async function loadAISettings() {
     aiAccountProductIDs = normalizeAIAccountProductMap(data.account_product_ids);
     if ($('aiEnabled')) $('aiEnabled').checked = !!data.enabled;
     if ($('aiOcrEnabled')) $('aiOcrEnabled').checked = data.vision_enabled !== false;
+    if ($('aiSystemOngkirEnabled')) $('aiSystemOngkirEnabled').checked = !!data.system_ongkir_enabled;
+    if ($('aiSystemOngkirOrigin')) $('aiSystemOngkirOrigin').value = data.system_ongkir_origin || '';
     if ($('aiRajaOngkirEnabled')) $('aiRajaOngkirEnabled').checked = !!data.rajaongkir_enabled;
     if ($('aiRajaOngkirApiKey')) $('aiRajaOngkirApiKey').value = data.rajaongkir_api_key || '';
     if ($('aiRajaOngkirOrigin')) $('aiRajaOngkirOrigin').value = data.rajaongkir_origin || '';
     if ($('aiInstruction')) $('aiInstruction').value = data.instruction || '';
     if ($('aiProductInfo')) $('aiProductInfo').value = data.product_info || '';
-    if ($('aiDelayMs')) $('aiDelayMs').value = data.delay_ms || 1200;
+    if ($('aiDelayMs')) $('aiDelayMs').value = Math.max(0, Math.round(Number(data.delay_ms || 10000) / 1000));
     if ($('aiMaxHistory')) $('aiMaxHistory').value = data.max_history || 15;
     if ($('aiBatchWindowMs')) $('aiBatchWindowMs').value = data.batch_window_ms || 4500;
     syncRajaOngkirFields();
     renderAIAccountPicker();
     renderAIKnowledgeList();
     renderAIKnowledgeImagePreview();
-    ['aiEnabled', 'aiOcrEnabled', 'aiRajaOngkirEnabled', 'aiRajaOngkirApiKey', 'aiRajaOngkirOrigin', 'aiInstruction', 'aiProductInfo', 'aiDelayMs', 'aiMaxHistory', 'aiBatchWindowMs', 'aiKnowledgeName', 'aiKnowledgeContent', 'aiKnowledgeImageInput', 'aiKnowledgeSelect', 'aiKnowledgeAccountSelect']
+    ['aiEnabled', 'aiOcrEnabled', 'aiSystemOngkirEnabled', 'aiSystemOngkirOrigin', 'aiRajaOngkirEnabled', 'aiRajaOngkirApiKey', 'aiRajaOngkirOrigin', 'aiInstruction', 'aiProductInfo', 'aiDelayMs', 'aiMaxHistory', 'aiBatchWindowMs', 'aiKnowledgeName', 'aiKnowledgeContent', 'aiKnowledgeImageInput', 'aiKnowledgeSelect', 'aiKnowledgeAccountSelect']
       .forEach(id => { if ($(id)) $(id).disabled = !!data.locked; });
     document.querySelectorAll('#tab-ai .btn').forEach(btn => btn.disabled = !!data.locked);
     if (data.locked && $('aiEnabled')) $('aiEnabled').checked = false;
@@ -3439,17 +3614,20 @@ async function loadAISettings() {
   }
 }
 
-async function saveAISettings() {
+async function saveAISettings(skipSuccessToast = false) {
   const enabled = $('aiEnabled')?.checked || false;
   const selectedAccountIDs = getSelectedAIAccountIDs();
   if (enabled && !selectedAccountIDs.length) {
-    showToast('Pilih minimal satu akun WhatsApp untuk AI', 'error');
-    return;
+    const err = new Error('Pilih minimal satu akun WhatsApp untuk AI');
+    showToast(err.message, 'error');
+    throw err;
   }
 
   const body = {
     enabled,
     vision_enabled: $('aiOcrEnabled')?.checked !== false,
+    system_ongkir_enabled: $('aiSystemOngkirEnabled')?.checked || false,
+    system_ongkir_origin: $('aiSystemOngkirOrigin')?.value?.trim() || '',
     rajaongkir_enabled: $('aiRajaOngkirEnabled')?.checked || false,
     rajaongkir_api_key: $('aiRajaOngkirApiKey')?.value?.trim() || '',
     rajaongkir_origin: $('aiRajaOngkirOrigin')?.value?.trim() || '',
@@ -3461,9 +3639,11 @@ async function saveAISettings() {
       content: item.content,
       image_path: item.image_path || '',
       image_url: item.image_url || '',
+      image_paths: item.image_paths || [],
+      image_urls: item.image_urls || [],
     })),
     account_product_ids: aiAccountProductIDs,
-    delay_ms: parseInt($('aiDelayMs')?.value || '1200', 10) || 0,
+    delay_ms: (parseInt($('aiDelayMs')?.value || '10', 10) || 0) * 1000,
     max_history: parseInt($('aiMaxHistory')?.value || '15', 10) || 15,
     batch_window_ms: parseInt($('aiBatchWindowMs')?.value || '4500', 10) || 4500,
     account_ids: selectedAccountIDs,
@@ -3476,9 +3656,12 @@ async function saveAISettings() {
     });
 
     if ($('aiEnabled')) $('aiEnabled').checked = !!data.enabled;
+    if ($('aiSystemOngkirEnabled')) $('aiSystemOngkirEnabled').checked = !!data.system_ongkir_enabled;
+    if ($('aiSystemOngkirOrigin')) $('aiSystemOngkirOrigin').value = data.system_ongkir_origin || body.system_ongkir_origin;
     if ($('aiRajaOngkirEnabled')) $('aiRajaOngkirEnabled').checked = !!data.rajaongkir_enabled;
     if ($('aiRajaOngkirApiKey')) $('aiRajaOngkirApiKey').value = data.rajaongkir_api_key || body.rajaongkir_api_key;
     if ($('aiRajaOngkirOrigin')) $('aiRajaOngkirOrigin').value = data.rajaongkir_origin || body.rajaongkir_origin;
+    if ($('aiDelayMs')) $('aiDelayMs').value = Math.max(0, Math.round(Number(data.delay_ms || body.delay_ms || 10000) / 1000));
     aiSelectedAccountIDs = Array.isArray(data.account_ids) ? data.account_ids : selectedAccountIDs;
     aiKnowledgeProducts = normalizeAIKnowledgeProducts(data.products);
     aiAccountProductIDs = normalizeAIAccountProductMap(data.account_product_ids);
@@ -3491,15 +3674,19 @@ async function saveAISettings() {
       $('aiStatus').style.color = data.enabled ? '#22c55e' : 'var(--muted)';
     }
     if ($('aiLastError')) $('aiLastError').textContent = '';
-    showToast('Pengaturan AI disimpan', 'success');
+    if (!skipSuccessToast) {
+      showToast('Pengaturan AI disimpan', 'success');
+    }
     appendLog('Pengaturan InstaBlast AI disimpan', 'success');
     refreshAIStats();
+    return data;
   } catch (e) {
     if ($('aiStatus')) {
       $('aiStatus').textContent = 'Gagal simpan AI: ' + e.message;
       $('aiStatus').style.color = '#ef4444';
     }
     showToast('Gagal simpan AI: ' + e.message, 'error');
+    throw e;
   }
 }
 
@@ -4414,7 +4601,8 @@ document.addEventListener('DOMContentLoaded', () => {
       renderImagePreview('imagePreviewPersonal', imageUploadsPersonal);
     }
   });
-  $('aiRajaOngkirEnabled')?.addEventListener('change', syncRajaOngkirFields);
+  $('aiSystemOngkirEnabled')?.addEventListener('change', handleAISystemOngkirToggle);
+  $('aiRajaOngkirEnabled')?.addEventListener('change', handleAIRajaOngkirToggle);
   $('broadcastRandomDelay')?.addEventListener('change', () => {
     $('broadcastRandomDelayRow').style.display = $('broadcastRandomDelay').checked ? 'block' : 'none';
   });
