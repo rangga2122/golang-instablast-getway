@@ -3972,7 +3972,10 @@ function setAdminTrialOTPText(id, message, color) {
 function renderAdminTrialOTPAccount(data = {}) {
   const account = data.account || {};
   const connected = !!data.connected;
-  if ($('adminTrialOTPEnabled')) $('adminTrialOTPEnabled').checked = !!data.enabled;
+  if ($('adminTrialOTPEnabled')) {
+    $('adminTrialOTPEnabled').checked = true;
+    $('adminTrialOTPEnabled').disabled = true;
+  }
   if ($('adminTrialOTPTTL') && data.ttl_minutes) $('adminTrialOTPTTL').value = String(data.ttl_minutes);
   if ($('adminTrialOTPMessageTemplate') && typeof data.message_template === 'string') $('adminTrialOTPMessageTemplate').value = data.message_template;
   if ($('adminTrialOTPSuccessTemplate') && typeof data.success_template === 'string') $('adminTrialOTPSuccessTemplate').value = data.success_template;
@@ -4019,7 +4022,7 @@ async function saveAdminTrialOTPConfig() {
     await api('/admin/trial-otp-config', {
       method: 'POST',
       body: JSON.stringify({
-        enabled: $('adminTrialOTPEnabled')?.checked || false,
+        enabled: true,
         ttl_minutes: parseInt($('adminTrialOTPTTL')?.value || '5', 10) || 5,
         message_template: $('adminTrialOTPMessageTemplate')?.value || '',
         success_template: $('adminTrialOTPSuccessTemplate')?.value || ''

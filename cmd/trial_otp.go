@@ -17,7 +17,6 @@ import (
 const (
 	trialOTPSystemUserID               = "__trial_otp_system__"
 	trialOTPVerifierAccountID          = "trial-otp-verifier"
-	trialOTPEnabledPrefKey             = "trial_otp_enabled"
 	trialOTPMessageTemplatePrefKey     = "trial_otp_message_template"
 	trialOTPSuccessTemplatePrefKey     = "trial_otp_success_template"
 	trialOTPTTLMinutesPrefKey          = "trial_otp_ttl_minutes"
@@ -53,7 +52,7 @@ func initTrialOTPVerifierManager() {
 
 func loadTrialOTPAdminConfig() trialOTPAdminConfig {
 	cfg := trialOTPAdminConfig{
-		Enabled:         config.TrialOTPEnabled,
+		Enabled:         true,
 		TTLMinutes:      config.TrialOTPTTLMinutes,
 		MessageTemplate: defaultTrialOTPMessageTemplate(),
 		SuccessTemplate: defaultTrialOTPSuccessTemplate(),
@@ -62,7 +61,6 @@ func loadTrialOTPAdminConfig() trialOTPAdminConfig {
 		return cfg
 	}
 
-	cfg.Enabled = parseStoredBool(Store.GetPref(trialOTPEnabledPrefKey), cfg.Enabled)
 	if ttl := parseStoredInt(Store.GetPref(trialOTPTTLMinutesPrefKey), cfg.TTLMinutes); ttl > 0 {
 		cfg.TTLMinutes = ttl
 	}
@@ -88,6 +86,7 @@ func saveTrialOTPAdminConfig(cfg trialOTPAdminConfig) error {
 	if Store == nil {
 		return fmt.Errorf("storage belum siap")
 	}
+	cfg.Enabled = true
 	if cfg.TTLMinutes <= 0 {
 		cfg.TTLMinutes = 5
 	}
@@ -98,9 +97,6 @@ func saveTrialOTPAdminConfig(cfg trialOTPAdminConfig) error {
 	}
 	if cfg.SuccessTemplate == "" {
 		cfg.SuccessTemplate = defaultTrialOTPSuccessTemplate()
-	}
-	if err := Store.SetPref(trialOTPEnabledPrefKey, fmt.Sprintf("%t", cfg.Enabled)); err != nil {
-		return err
 	}
 	if err := Store.SetPref(trialOTPTTLMinutesPrefKey, fmt.Sprintf("%d", cfg.TTLMinutes)); err != nil {
 		return err
@@ -120,18 +116,6 @@ func defaultTrialOTPMessageTemplate() string {
 
 func defaultTrialOTPSuccessTemplate() string {
 	return "Verifikasi trial berhasil.\n\nSilakan login ke InstaBlast dengan:\nEmail: {{email}}\nPassword: {{password}}\nLogin: {{login_url}}\n\nMasa trial: {{trial_days}} hari."
-}
-
-func parseStoredBool(raw string, fallback bool) bool {
-	raw = strings.TrimSpace(strings.ToLower(raw))
-	switch raw {
-	case "1", "true", "yes", "on":
-		return true
-	case "0", "false", "no", "off":
-		return false
-	default:
-		return fallback
-	}
 }
 
 func parseStoredInt(raw string, fallback int) int {

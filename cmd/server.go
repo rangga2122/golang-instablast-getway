@@ -188,38 +188,6 @@ func trialSignupClientIP(c *fiber.Ctx) string {
 	return strings.TrimSpace(c.Get("X-Real-IP"))
 }
 
-func trialSignupDomain(email string) string {
-	at := strings.LastIndex(strings.TrimSpace(strings.ToLower(email)), "@")
-	if at < 0 {
-		return ""
-	}
-	return strings.TrimSpace(strings.ToLower(email[at+1:]))
-}
-
-func isTrialBlockedEmailDomain(domain string) bool {
-	domain = strings.TrimSpace(strings.ToLower(domain))
-	if domain == "" {
-		return false
-	}
-	for _, item := range strings.Split(config.TrialBlockedEmailDomains, ",") {
-		if strings.TrimSpace(strings.ToLower(item)) == domain {
-			return true
-		}
-	}
-	return false
-}
-
-func isTrialSignupTooFast(formStartedAt int64) bool {
-	if config.TrialSignupMinFormSeconds <= 0 || formStartedAt <= 0 {
-		return false
-	}
-	startedAt := time.UnixMilli(formStartedAt)
-	if startedAt.IsZero() {
-		return false
-	}
-	return time.Since(startedAt) < time.Duration(config.TrialSignupMinFormSeconds)*time.Second
-}
-
 func recordTrialSignupAttempt(email, ip, userAgent string, succeeded bool, reason string) {
 	if Store == nil {
 		return
@@ -528,33 +496,12 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		}
 
 		otpCfg := loadTrialOTPAdminConfig()
-		if !otpCfg.Enabled {
-			recordTrialSignupAttempt(strings.TrimSpace(body.Email), clientIP, userAgent, false, "otp_disabled")
-			return c.Status(503).JSON(fiber.Map{"error": "Verifikasi OTP trial sedang dimatikan oleh admin"})
-		}
 
 		email := strings.TrimSpace(strings.ToLower(body.Email))
 		password := body.Password
 		confirmPassword := body.ConfirmPassword
 		phone := normalizePhone(body.Phone)
 
-		if config.TrialSignupMaxAttemptsPerIP > 0 && config.TrialSignupWindowMinutes > 0 && clientIP != "" {
-			attempts, err := Store.CountRecentTrialSignupAttemptsByIP(clientIP, time.Now().Add(-time.Duration(config.TrialSignupWindowMinutes)*time.Minute))
-			if err != nil {
-				logrus.WithError(err).Warn("failed to count recent trial signup attempts")
-			} else if attempts >= config.TrialSignupMaxAttemptsPerIP {
-				recordTrialSignupAttempt(email, clientIP, userAgent, false, "rate_limit_attempts")
-				return c.Status(429).JSON(fiber.Map{"error": "Terlalu banyak percobaan trial dari jaringan ini. Coba lagi beberapa saat lagi atau hubungi admin."})
-			}
-		}
-		if strings.TrimSpace(body.Website) != "" {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "honeypot")
-			return c.Status(400).JSON(fiber.Map{"error": "Permintaan trial tidak valid"})
-		}
-		if isTrialSignupTooFast(body.FormStartedAt) {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "submitted_too_fast")
-			return c.Status(400).JSON(fiber.Map{"error": "Form trial dikirim terlalu cepat. Coba ulangi sebentar lagi."})
-		}
 		if email == "" {
 			recordTrialSignupAttempt(email, clientIP, userAgent, false, "missing_email")
 			return c.Status(400).JSON(fiber.Map{"error": "Email wajib diisi"})
@@ -562,10 +509,6 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if _, err := mail.ParseAddress(email); err != nil {
 			recordTrialSignupAttempt(email, clientIP, userAgent, false, "invalid_email")
 			return c.Status(400).JSON(fiber.Map{"error": "Format email tidak valid"})
-		}
-		if isTrialBlockedEmailDomain(trialSignupDomain(email)) {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "blocked_email_domain")
-			return c.Status(400).JSON(fiber.Map{"error": "Domain email ini tidak bisa dipakai untuk trial. Gunakan email utama Anda atau hubungi admin."})
 		}
 		if len(strings.TrimSpace(password)) < 6 {
 			recordTrialSignupAttempt(email, clientIP, userAgent, false, "password_too_short")
@@ -582,15 +525,6 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if config.TrialActiveDays <= 0 {
 			recordTrialSignupAttempt(email, clientIP, userAgent, false, "invalid_trial_config")
 			return c.Status(500).JSON(fiber.Map{"error": "Konfigurasi trial tidak valid di server"})
-		}
-		if config.TrialSignupMaxSuccessPerIP > 0 && config.TrialSignupSuccessWindowDays > 0 && clientIP != "" {
-			successCount, err := Store.CountRecentSuccessfulTrialSignupsByIP(clientIP, time.Now().Add(-time.Duration(config.TrialSignupSuccessWindowDays)*24*time.Hour))
-			if err != nil {
-				logrus.WithError(err).Warn("failed to count recent successful trial signups")
-			} else if successCount >= config.TrialSignupMaxSuccessPerIP {
-				recordTrialSignupAttempt(email, clientIP, userAgent, false, "ip_trial_limit_reached")
-				return c.Status(429).JSON(fiber.Map{"error": "Trial gratis dari jaringan ini sudah pernah digunakan. Jika butuh akses, silakan hubungi admin."})
-			}
 		}
 		if _, err := Store.GetUserByEmail(email); err == nil {
 			recordTrialSignupAttempt(email, clientIP, userAgent, false, "email_exists")
@@ -748,16 +682,6 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			recordTrialSignupAttempt(otpSession.Email, otpSession.IPAddress, otpSession.UserAgent, false, "phone_already_used_on_verify")
 			return c.Status(429).JSON(fiber.Map{"error": "Nomor WhatsApp ini sudah pernah dipakai untuk trial."})
 		}
-		if config.TrialSignupMaxSuccessPerIP > 0 && config.TrialSignupSuccessWindowDays > 0 && otpSession.IPAddress != "" {
-			successCount, err := Store.CountRecentSuccessfulTrialSignupsByIP(otpSession.IPAddress, time.Now().Add(-time.Duration(config.TrialSignupSuccessWindowDays)*24*time.Hour))
-			if err != nil {
-				logrus.WithError(err).Warn("failed to count recent successful trial signups on verify")
-			} else if successCount >= config.TrialSignupMaxSuccessPerIP {
-				recordTrialSignupAttempt(otpSession.Email, otpSession.IPAddress, otpSession.UserAgent, false, "ip_trial_limit_reached_on_verify")
-				return c.Status(429).JSON(fiber.Map{"error": "Trial gratis dari jaringan ini sudah pernah digunakan. Jika butuh akses, silakan hubungi admin."})
-			}
-		}
-
 		plainPassword := otpSession.PlainPassword
 		expiresAt := time.Now().Add(time.Duration(config.TrialActiveDays) * 24 * time.Hour)
 		createdUser, err := Store.CreateUser(storage.CreateUserInput{
@@ -840,112 +764,8 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			recordTrialSignupAttempt("", clientIP, userAgent, false, "invalid_body")
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
 		}
-		if loadTrialOTPAdminConfig().Enabled {
-			recordTrialSignupAttempt(strings.TrimSpace(body.Email), clientIP, userAgent, false, "otp_required")
-			return c.Status(400).JSON(fiber.Map{"error": "Trial sekarang wajib verifikasi OTP WhatsApp. Silakan gunakan alur OTP di form trial."})
-		}
-
-		email := strings.TrimSpace(strings.ToLower(body.Email))
-		password := body.Password
-		confirmPassword := body.ConfirmPassword
-
-		if config.TrialSignupMaxAttemptsPerIP > 0 && config.TrialSignupWindowMinutes > 0 && clientIP != "" {
-			attempts, err := Store.CountRecentTrialSignupAttemptsByIP(clientIP, time.Now().Add(-time.Duration(config.TrialSignupWindowMinutes)*time.Minute))
-			if err != nil {
-				logrus.WithError(err).Warn("failed to count recent trial signup attempts")
-			} else if attempts >= config.TrialSignupMaxAttemptsPerIP {
-				recordTrialSignupAttempt(email, clientIP, userAgent, false, "rate_limit_attempts")
-				return c.Status(429).JSON(fiber.Map{"error": "Terlalu banyak percobaan trial dari jaringan ini. Coba lagi beberapa saat lagi atau hubungi admin."})
-			}
-		}
-		if strings.TrimSpace(body.Website) != "" {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "honeypot")
-			return c.Status(400).JSON(fiber.Map{"error": "Permintaan trial tidak valid"})
-		}
-		if isTrialSignupTooFast(body.FormStartedAt) {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "submitted_too_fast")
-			return c.Status(400).JSON(fiber.Map{"error": "Form trial dikirim terlalu cepat. Coba ulangi sebentar lagi."})
-		}
-		if email == "" {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "missing_email")
-			return c.Status(400).JSON(fiber.Map{"error": "Email wajib diisi"})
-		}
-		if _, err := mail.ParseAddress(email); err != nil {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "invalid_email")
-			return c.Status(400).JSON(fiber.Map{"error": "Format email tidak valid"})
-		}
-		if isTrialBlockedEmailDomain(trialSignupDomain(email)) {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "blocked_email_domain")
-			return c.Status(400).JSON(fiber.Map{"error": "Domain email ini tidak bisa dipakai untuk trial. Gunakan email utama Anda atau hubungi admin."})
-		}
-		if len(strings.TrimSpace(password)) < 6 {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "password_too_short")
-			return c.Status(400).JSON(fiber.Map{"error": "Password minimal 6 karakter"})
-		}
-		if password != confirmPassword {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "password_mismatch")
-			return c.Status(400).JSON(fiber.Map{"error": "Konfirmasi password tidak cocok"})
-		}
-		if config.TrialActiveDays <= 0 {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "invalid_trial_config")
-			return c.Status(500).JSON(fiber.Map{"error": "Konfigurasi trial tidak valid di server"})
-		}
-		if config.TrialSignupMaxSuccessPerIP > 0 && config.TrialSignupSuccessWindowDays > 0 && clientIP != "" {
-			successCount, err := Store.CountRecentSuccessfulTrialSignupsByIP(clientIP, time.Now().Add(-time.Duration(config.TrialSignupSuccessWindowDays)*24*time.Hour))
-			if err != nil {
-				logrus.WithError(err).Warn("failed to count recent successful trial signups")
-			} else if successCount >= config.TrialSignupMaxSuccessPerIP {
-				recordTrialSignupAttempt(email, clientIP, userAgent, false, "ip_trial_limit_reached")
-				return c.Status(429).JSON(fiber.Map{"error": "Trial gratis dari jaringan ini sudah pernah digunakan. Jika butuh akses, silakan hubungi admin."})
-			}
-		}
-		if _, err := Store.GetUserByEmail(email); err == nil {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "email_exists")
-			return c.Status(400).JSON(fiber.Map{"error": "Email sudah terdaftar"})
-		}
-
-		expiresAt := time.Now().Add(time.Duration(config.TrialActiveDays) * 24 * time.Hour)
-		_, err := Store.CreateUser(storage.CreateUserInput{
-			Email:      email,
-			Password:   password,
-			IsAdmin:    false,
-			IsTrial:    true,
-			CanUseAI:   true,
-			MaxDevices: config.TrialMaxDevices,
-			ExpiresAt:  expiresAt,
-		})
-		if err != nil {
-			recordTrialSignupAttempt(email, clientIP, userAgent, false, "create_user_failed")
-			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
-		}
-		recordTrialSignupAttempt(email, clientIP, userAgent, true, "trial_created")
-
-		user, session, err := AuthService.Login(email, password)
-		if err != nil {
-			logrus.WithField("email", email).Errorf("failed to auto-login new trial user: %v", err)
-			return c.Status(500).JSON(fiber.Map{"error": "Akun trial berhasil dibuat, tetapi login otomatis gagal. Silakan login manual."})
-		}
-
-		c.Cookie(&fiber.Cookie{
-			Name:     auth.SessionCookieName,
-			Value:    session.Token,
-			HTTPOnly: true,
-			SameSite: "Lax",
-			Path:     "/",
-			Expires:  session.ExpiresAt,
-		})
-		return c.JSON(fiber.Map{
-			"user": fiber.Map{
-				"id":          user.ID,
-				"email":       user.Email,
-				"is_admin":    user.IsAdmin,
-				"is_trial":    user.IsTrial,
-				"can_use_ai":  user.CanUseAI,
-				"max_devices": effectiveUserMaxDevices(user),
-				"expires_at":  user.ExpiresAt,
-				"trial_days":  config.TrialActiveDays,
-			},
-		})
+		recordTrialSignupAttempt(strings.TrimSpace(body.Email), clientIP, userAgent, false, "otp_required")
+		return c.Status(400).JSON(fiber.Map{"error": "Trial sekarang selalu wajib verifikasi OTP WhatsApp. Silakan gunakan alur OTP di form trial."})
 	})
 	api.Post("/auth/logout", func(c *fiber.Ctx) error {
 		if AuthService != nil {
@@ -1214,7 +1034,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			connected = whatsapp.IsClientConnectedForAccountForUser(trialOTPSystemUserID, account.ID)
 		}
 		return c.JSON(fiber.Map{
-			"enabled":          cfg.Enabled,
+			"enabled":          true,
 			"ttl_minutes":      cfg.TTLMinutes,
 			"message_template": cfg.MessageTemplate,
 			"success_template": cfg.SuccessTemplate,
@@ -1245,7 +1065,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
 		}
 		cfg := trialOTPAdminConfig{
-			Enabled:         body.Enabled,
+			Enabled:         true,
 			TTLMinutes:      body.TTLMinutes,
 			MessageTemplate: body.MessageTemplate,
 			SuccessTemplate: body.SuccessTemplate,

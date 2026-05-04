@@ -948,7 +948,8 @@ Content-Type: application/json
             </div>
             <div class="card">
               <div class="card-title"><span>OTP</span> Trial OTP WhatsApp</div>
-              <label class="toggle"><input type="checkbox" id="adminTrialOTPEnabled" checked /> Wajibkan trial verifikasi OTP WhatsApp</label>
+              <label class="toggle"><input type="checkbox" id="adminTrialOTPEnabled" checked disabled /> Trial selalu wajib verifikasi OTP WhatsApp</label>
+              <div class="hint">Mode OTP WA selalu aktif. Nomor WhatsApp yang sudah pernah mengambil trial tidak bisa dipakai lagi untuk trial kedua.</div>
               <div class="form-group"><label>Masa berlaku OTP (menit)</label><input type="number" id="adminTrialOTPTTL" value="5" min="1" max="30" /></div>
               <div class="form-group"><label>Teks WhatsApp untuk kirim OTP</label><textarea id="adminTrialOTPMessageTemplate" rows="6" placeholder="Gunakan variabel {{code}}, {{minutes}}, {{email}}, {{phone}}, {{login_url}}"></textarea></div>
               <div class="form-group"><label>Teks WhatsApp setelah verifikasi berhasil</label><textarea id="adminTrialOTPSuccessTemplate" rows="7" placeholder="Gunakan variabel {{email}}, {{password}}, {{phone}}, {{login_url}}, {{trial_days}}"></textarea></div>
