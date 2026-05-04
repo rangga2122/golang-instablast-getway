@@ -191,9 +191,10 @@
 
     .hero-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.82fr);
-      gap: 34px;
+      grid-template-columns: minmax(0, 1fr) minmax(460px, 540px);
+      gap: 40px;
       align-items: start;
+      justify-content: space-between;
     }
 
     .eyebrow {
@@ -247,21 +248,41 @@
     .hero-pricing-stack {
       display: grid;
       gap: 18px;
+      width: 100%;
+      max-width: 540px;
+      justify-self: end;
     }
 
     .offer-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-areas:
+        "featured featured"
+        "starter team"
+        "trial trial";
       gap: 16px;
     }
 
-    .offer-grid .featured,
+    .offer-grid .featured {
+      grid-area: featured;
+    }
+
+    .offer-grid .starter-card {
+      grid-area: starter;
+    }
+
+    .offer-grid .team-card {
+      grid-area: team;
+    }
+
     .offer-grid .trial-card {
-      grid-column: 1 / -1;
+      grid-area: trial;
     }
 
     .offer-card {
-      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      padding: 22px;
       border-radius: 24px;
       background:
         radial-gradient(circle at top right, rgba(18, 183, 106, .14), transparent 30%),
@@ -311,7 +332,7 @@
     }
 
     .offer-price {
-      margin: 14px 0 6px;
+      margin: 12px 0 6px;
       font-size: clamp(34px, 4vw, 52px);
       line-height: 0.98;
       letter-spacing: -0.06em;
@@ -342,7 +363,7 @@
     .offer-copy {
       margin: 0;
       font-size: 15px;
-      line-height: 1.72;
+      line-height: 1.6;
       font-weight: 600;
       color: inherit;
       opacity: .9;
@@ -350,8 +371,8 @@
 
     .offer-points {
       display: grid;
-      gap: 10px;
-      margin: 18px 0 0;
+      gap: 8px;
+      margin: 16px 0 0;
     }
 
     .offer-point {
@@ -388,12 +409,40 @@
       display: flex;
       gap: 10px;
       flex-wrap: wrap;
-      margin-top: 18px;
+      margin-top: 16px;
     }
 
     .offer-link {
       width: 100%;
       justify-content: center;
+    }
+
+    .starter-card .offer-price,
+    .team-card .offer-price,
+    .trial-card .offer-price {
+      font-size: clamp(26px, 2.4vw, 42px);
+      line-height: 1;
+    }
+
+    .starter-card .offer-price small,
+    .team-card .offer-price small,
+    .trial-card .offer-price small {
+      display: block;
+      margin-top: 6px;
+      font-size: 17px;
+      line-height: 1.15;
+    }
+
+    .starter-card .offer-title,
+    .team-card .offer-title,
+    .trial-card .offer-title {
+      font-size: 20px;
+    }
+
+    .starter-card .offer-copy,
+    .team-card .offer-copy,
+    .trial-card .offer-copy {
+      font-size: 14px;
     }
 
     .pricing-cards {
@@ -784,12 +833,26 @@
         grid-template-columns: 1fr;
       }
 
+      .hero-pricing-stack {
+        max-width: none;
+        justify-self: stretch;
+      }
+
       .pricing-cards {
         grid-template-columns: 1fr;
       }
 
       .pricing-cards .offer-card:first-child {
         grid-column: auto;
+      }
+
+      .offer-grid {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+          "featured"
+          "starter"
+          "team"
+          "trial";
       }
 
       .feature-grid {
@@ -835,16 +898,29 @@
       }
 
       .hero-badges,
-      .offer-grid,
       .feature-grid,
       .workflow,
       .faq-grid {
         grid-template-columns: 1fr;
       }
 
-      .offer-grid .featured,
-      .offer-grid .trial-card {
-        grid-column: auto;
+      .hero-actions .btn,
+      .offer-actions .btn {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .starter-card .offer-price,
+      .team-card .offer-price,
+      .trial-card .offer-price {
+        font-size: clamp(28px, 8vw, 40px);
+      }
+
+      .starter-card .offer-price small,
+      .team-card .offer-price small,
+      .trial-card .offer-price small {
+        display: inline;
+        margin-top: 0;
       }
 
       .hero-card,
@@ -949,19 +1025,6 @@
         </div>
         <aside class="hero-pricing-stack" id="harga">
           <div class="offer-grid">
-            <article class="offer-card">
-              <div class="offer-chip">Starter</div>
-              <div class="offer-price">Rp45.000 <small>/ bulan</small></div>
-              <h3 class="offer-title">1 Nomor</h3>
-              <p class="offer-copy">Pilihan hemat untuk mulai pakai InstaBlast dengan semua fitur aktif dari dashboard yang sama.</p>
-              <div class="offer-actions">
-                <a class="btn btn-checkout offer-link" href="https://www.azkazamdigital.com/order/instablast-getway-45rb" target="_blank" rel="noopener noreferrer">Link Order</a>
-              </div>
-              <div class="offer-points">
-                <div class="offer-point"><span class="offer-check">✓</span><span><strong>1 nomor WhatsApp</strong> siap dipakai penuh.</span></div>
-                <div class="offer-point"><span class="offer-check">✓</span><span>Semua fitur aktif tanpa pembatasan menu.</span></div>
-              </div>
-            </article>
             <article class="offer-card featured">
               <div class="offer-chip">Paling laris</div>
               <div class="offer-price">Rp100.000 <small>/ bulan</small></div>
@@ -975,7 +1038,20 @@
                 <div class="offer-point"><span class="offer-check">✓</span><span>Semua fitur aktif untuk kebutuhan harian.</span></div>
               </div>
             </article>
-            <article class="offer-card">
+            <article class="offer-card starter-card">
+              <div class="offer-chip">Starter</div>
+              <div class="offer-price">Rp45.000 <small>/ bulan</small></div>
+              <h3 class="offer-title">1 Nomor</h3>
+              <p class="offer-copy">Pilihan hemat untuk mulai pakai InstaBlast dengan semua fitur aktif dari dashboard yang sama.</p>
+              <div class="offer-actions">
+                <a class="btn btn-checkout offer-link" href="https://www.azkazamdigital.com/order/instablast-getway-45rb" target="_blank" rel="noopener noreferrer">Link Order</a>
+              </div>
+              <div class="offer-points">
+                <div class="offer-point"><span class="offer-check">✓</span><span><strong>1 nomor WhatsApp</strong> siap dipakai penuh.</span></div>
+                <div class="offer-point"><span class="offer-check">✓</span><span>Semua fitur aktif tanpa pembatasan menu.</span></div>
+              </div>
+            </article>
+            <article class="offer-card team-card">
               <div class="offer-chip">Tim besar</div>
               <div class="offer-price">Rp150.000 <small>/ bulan</small></div>
               <h3 class="offer-title">6 Nomor</h3>
@@ -1064,26 +1140,6 @@
               </a>
               <a class="btn btn-light" href="/login#trial">Coba Trial Rp0</a>
               <a class="btn btn-light" href="/login">Login Panel</a>
-            </div>
-            <div class="pricing-cards">
-              <article class="offer-card featured">
-                <div class="offer-chip">Paling laris</div>
-                <div class="offer-price">Rp100.000 <small>/ bulan</small></div>
-                <h3 class="offer-title">3 Nomor</h3>
-                <p class="offer-copy">Pas untuk operasional harian dengan beberapa CS aktif sekaligus.</p>
-              </article>
-              <article class="offer-card">
-                <div class="offer-chip">Starter</div>
-                <div class="offer-price">Rp45.000 <small>/ bulan</small></div>
-                <h3 class="offer-title">1 Nomor</h3>
-                <p class="offer-copy">Semua fitur aktif untuk satu nomor utama.</p>
-              </article>
-              <article class="offer-card">
-                <div class="offer-chip">Tim besar</div>
-                <div class="offer-price">Rp150.000 <small>/ bulan</small></div>
-                <h3 class="offer-title">6 Nomor</h3>
-                <p class="offer-copy">Lebih lega untuk multi admin, multi brand, dan antrian chat lebih besar.</p>
-              </article>
             </div>
           </div>
           <div class="faq-grid">

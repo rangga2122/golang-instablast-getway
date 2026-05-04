@@ -3058,6 +3058,35 @@ async function handleContactCSVImport(event) {
   }
 }
 
+function downloadContactSampleCSV() {
+  const headers = ['nomor', 'nama', 'kota', 'produk', 'invoice', 'link'];
+  const rows = [
+    ['628123456789', 'Budi', 'Makassar', 'Paket InstaBlast 1 Nomor', 'INV-001', 'https://contoh-link.com/order-1'],
+    ['628987654321', 'Siti', 'Jakarta', 'Paket InstaBlast 3 Nomor', 'INV-002', 'https://contoh-link.com/order-2'],
+    ['628111222333', 'Andi', 'Bandung', 'Paket InstaBlast 6 Nomor', 'INV-003', 'https://contoh-link.com/order-3']
+  ];
+  const csvEscape = (value) => {
+    const text = String(value ?? '');
+    if (/[",\n]/.test(text)) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  };
+  const csvContent = [headers, ...rows]
+    .map((row) => row.map(csvEscape).join(','))
+    .join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'contoh-kontak-instablast.csv';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  showToast('Contoh CSV berhasil didownload', 'success');
+}
+
 function renderContactTablePreview(rows = contactCSVRows, columns = contactCSVColumns) {
   const wrap = $('contactTablePreview');
   if (!wrap) return;
