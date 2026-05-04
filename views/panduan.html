@@ -225,6 +225,62 @@
       padding: 24px;
     }
 
+    .video-card {
+      margin-top: 22px;
+      padding: 24px;
+      background:
+        radial-gradient(circle at top right, rgba(18, 183, 106, 0.10), transparent 28%),
+        #ffffff;
+    }
+
+    .video-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .video-card h2 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+    }
+
+    .video-card p {
+      margin: 0;
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .video-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .video-embed {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: 22px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 44px rgba(16, 24, 40, 0.08);
+      background: #0b122b;
+    }
+
+    .video-embed iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+    }
+
     .toc-card h2,
     .quick-card h2 {
       margin: 0 0 14px;
@@ -519,6 +575,28 @@
             <div class="quick-item"><strong>Gunakan preview sebelum kirim</strong><span>Selalu cek tampilan pesan di preview HP agar format, variabel, dan bold sudah benar.</span></div>
             <div class="quick-item"><strong>Cek laporan setelah broadcast</strong><span>Dari sini Anda tahu berapa yang terkirim, gagal, atau masih menunggu proses.</span></div>
           </div>
+        </div>
+      </div>
+
+      <div class="section-card video-card">
+        <div class="video-card-head">
+          <div>
+            <div class="eyebrow">Tutorial Video</div>
+            <h2>Tonton panduan InstaBlast Pro versi video.</h2>
+            <p>Jika Anda lebih nyaman belajar lewat video, tutorial ini bisa membantu memahami alur penggunaan InstaBlast Pro dengan lebih cepat. Videonya bisa diputar langsung dari halaman panduan atau dibuka ke YouTube.</p>
+          </div>
+          <div class="video-actions">
+            <a class="btn btn-primary" href="https://youtu.be/9t29so9AtfU" target="_blank" rel="noopener noreferrer">Tonton di YouTube</a>
+          </div>
+        </div>
+        <div class="video-embed">
+          <iframe
+            src="https://www.youtube.com/embed/9t29so9AtfU"
+            title="Tutorial InstaBlast Pro"
+            loading="lazy"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen></iframe>
         </div>
       </div>
     </section>
