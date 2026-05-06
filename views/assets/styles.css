@@ -3066,6 +3066,10 @@ td {
   color: #f97316;
 }
 
+.nav-item[data-tab="warming"] .nav-icon {
+  color: #ef4444;
+}
+
 .nav-item[data-tab="ai"] .nav-icon,
 .nav-item[data-tab="ai"] .nav-icon-text {
   color: #ec4899;
@@ -3117,6 +3121,10 @@ td {
   color: #ea580c;
 }
 
+.nav-item.active[data-tab="warming"] .nav-icon {
+  color: #dc2626;
+}
+
 .nav-item.active[data-tab="ai"] .nav-icon,
 .nav-item.active[data-tab="ai"] .nav-icon-text {
   color: #db2777;
@@ -3152,6 +3160,135 @@ td {
 .log-count {
   background: #f97316;
   color: #ffffff;
+}
+
+.warming-stats-grid .stat-card .stat-value {
+  font-size: 26px;
+}
+
+.warming-banner {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
+  border: 1px solid #bae6fd;
+  color: #0f172a;
+}
+
+.warming-banner strong {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.warming-banner span {
+  font-size: 14px;
+  font-weight: 600;
+  color: #35506f;
+}
+
+.warming-account-list {
+  display: grid;
+  gap: 12px;
+}
+
+.warming-account-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid #e5edf6;
+  background: #fbfdff;
+}
+
+.warming-account-item.is-selected {
+  border-color: rgba(18, 183, 106, 0.34);
+  background: linear-gradient(135deg, #f0fff7 0%, #ffffff 100%);
+  box-shadow: 0 12px 24px rgba(18, 183, 106, 0.08);
+}
+
+.warming-account-item.is-offline {
+  opacity: 0.76;
+}
+
+.warming-account-item input[type="checkbox"] {
+  margin-top: 4px;
+}
+
+.warming-account-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.warming-account-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: #07133f;
+}
+
+.warming-account-meta {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7a90;
+}
+
+.warming-account-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  background: #eef2ff;
+  color: #334155;
+}
+
+.warming-account-status.online {
+  background: #ecfdf3;
+  color: #15803d;
+}
+
+.warming-warning {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  color: #c2410c;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.warm-preview-box {
+  margin-top: 14px;
+  padding: 16px 18px;
+  min-height: 88px;
+  border-radius: 18px;
+  background: #f8fbff;
+  border: 1px solid #e6edf4;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
+.form-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.status-good {
+  color: #16a34a !important;
+}
+
+.status-bad {
+  color: #dc2626 !important;
+}
+
+.status-warn {
+  color: #d97706 !important;
 }
 
 .topbar-btn:last-child {
@@ -3222,6 +3359,10 @@ td {
 
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .form-grid-3 {
+    grid-template-columns: 1fr;
   }
 }
 

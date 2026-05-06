@@ -10,7 +10,7 @@
   <meta name="description" content="InstaBlast Pro - WhatsApp Broadcast & AI Management" />
   <link rel="icon" href="/icon.ico" sizes="any" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/styles.css?v=20260503-ai-delay-seconds1" />
+  <link rel="stylesheet" href="/assets/styles.css?v=20260506-warming-up1" />
 </head>
 <body>
 
@@ -96,6 +96,12 @@
             <svg viewBox="0 0 24 24" fill="none"><path d="M14.7 6.3a3 3 0 0 0 4 4l2.6 2.6-2.8 2.8-2.6-2.6a3 3 0 1 0-1.4 1.4l2.6 2.6-2.8 2.8-2.6-2.6a3 3 0 1 0-1.4 1.4l2.6 2.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </span>
           <span class="nav-label">Tools</span>
+        </button>
+        <button class="nav-item" data-tab="warming" onclick="switchTab('warming')">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12.4 2.8c.7 2-.2 3.3-1.2 4.4-.9 1-1.9 2.1-1.9 3.8 0 1.9 1.4 3.3 3.2 3.3 2.6 0 4.2-2 4.2-4.8 0-1.8-.8-3.4-2.1-4.9 3.5 1.2 5.8 4.1 5.8 7.8 0 4.6-3.5 8-8.4 8-4.5 0-7.9-3.2-7.9-7.5 0-3.4 2-6.1 5.4-8 .2 1.5-.2 2.4-.7 3.1-.4.6-.8 1.2-.8 2.1 0 1.1.8 1.9 1.9 1.9 1.8 0 2.8-1.5 2.8-3.4 0-1.7-.8-3.1-2.3-4.8Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">Warming Up</span>
         </button>
         <button class="nav-item" data-tab="ai" onclick="switchTab('ai')">
           <span class="nav-icon nav-icon-text">AI</span>
@@ -230,6 +236,102 @@
           <div class="column"><div class="card"><div class="card-title"><span>Info</span> Ringkasan Akun Aktif</div><div class="account-summary-panel"><div class="account-summary-label">Nama</div><div class="account-summary-value" id="activeAccountName">-</div><div class="account-summary-label">Status</div><div class="account-summary-value" id="activeAccountStatus">-</div><div class="account-summary-label">Nomor</div><div class="account-summary-value" id="activeAccountPhone">-</div></div></div></div>
         </div>
         <div class="card"><div class="card-title"><span>List</span> Daftar Akun WA</div><div id="waAccountCards" class="account-cards"><div class="empty-state-inline">Memuat akun...</div></div></div>
+      </div>
+
+      <div class="tab-pane" id="tab-warming">
+        <div class="page-header"><h1 class="page-title">Warming Up</h1><p class="page-subtitle">Buat akun WhatsApp Anda saling kirim dan saling balas otomatis agar pola chat terlihat lebih natural.</p></div>
+        <div class="stats-grid warming-stats-grid">
+          <div class="stat-card green"><div class="stat-info"><div class="stat-label">Status</div><div class="stat-value" id="warmingRunStatus">Nonaktif</div></div></div>
+          <div class="stat-card blue"><div class="stat-info"><div class="stat-label">Terkirim Hari Ini</div><div class="stat-value" id="warmingSentToday">0</div></div></div>
+          <div class="stat-card purple"><div class="stat-info"><div class="stat-label">Akun Eligible</div><div class="stat-value" id="warmingEligibleCount">0</div></div></div>
+          <div class="stat-card orange"><div class="stat-info"><div class="stat-label">Jadwal Berikutnya</div><div class="stat-value" id="warmingNextRun">-</div></div></div>
+        </div>
+        <div class="two-column">
+          <div class="column">
+            <div class="card">
+              <div class="card-title"><span>Delay</span> Pengaturan Warming Up</div>
+              <div class="info-banner warming-banner">
+                <strong>Mengapa delay penting?</strong>
+                <span>Variasi delay membantu pesan antarakun terlihat lebih natural. Sistem juga akan membuat akun yang dipilih saling kirim lalu saling balas otomatis.</span>
+              </div>
+              <div class="form-grid form-grid-3">
+                <div class="form-group">
+                  <label>Delay Minimal (menit)</label>
+                  <input type="number" id="warmingDelayMin" min="1" value="5" />
+                  <div class="hint">Jeda minimal antar putaran warming.</div>
+                </div>
+                <div class="form-group">
+                  <label>Delay Maksimal (menit)</label>
+                  <input type="number" id="warmingDelayMax" min="1" value="60" />
+                  <div class="hint">Jeda maksimal antar putaran warming.</div>
+                </div>
+                <div class="form-group">
+                  <label>Pesan per Hari</label>
+                  <input type="number" id="warmingMessagesPerDay" min="2" value="50" />
+                  <div class="hint">Target total pesan warming yang dikirim per hari.</div>
+                </div>
+              </div>
+              <label class="checkbox-row" style="margin-top:8px;">
+                <input type="checkbox" id="warmingEnabled" />
+                <span>Simpan juga sebagai mode auto-run warming up</span>
+              </label>
+              <div class="btn-row" style="margin-top:16px;">
+                <button class="btn btn-primary" type="button" onclick="saveWarmingSettings()">Simpan Pengaturan</button>
+                <button class="btn btn-secondary" type="button" onclick="startWarmingUp()">Mulai Warming</button>
+                <button class="btn btn-danger" type="button" onclick="stopWarmingUp()">Stop</button>
+                <button class="btn btn-secondary" type="button" onclick="loadWarmingSettings()">Refresh Status</button>
+              </div>
+              <div class="status-text" id="warmingStatusText" style="margin-top:10px;"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-title"><span>Teks</span> Template Pesan Saling Kirim</div>
+              <div class="hint">Tulis satu template per baris. Sistem bawaan sudah menyiapkan contoh percakapan sehari-hari yang cukup untuk rotasi sampai sekitar 50 balasan per hari.</div>
+              <div class="form-group" style="margin-top:12px;">
+                <label>Pesan Warming Up</label>
+                <textarea id="warmingTemplates" rows="10" placeholder="Halo {{receiver_name}}, selamat pagi. Semoga harinya lancar ya.&#10;Hai {{receiver_name}}, sudah sarapan belum pagi ini?&#10;Selamat siang {{receiver_name}}, semoga semua pekerjaan lancar.&#10;Selamat sore {{receiver_name}}, bagaimana aktivitas hari ini?&#10;Selamat malam {{receiver_name}}, semoga harinya tadi lancar."></textarea>
+              </div>
+              <div class="hint">Variabel yang bisa dipakai: <code>{{sender_name}}</code>, <code>{{sender_phone}}</code>, <code>{{receiver_name}}</code>, <code>{{receiver_phone}}</code>, <code>{{date}}</code>, <code>{{time}}</code>.</div>
+              <div class="warm-preview-box" id="warmingLastMessage">Belum ada pesan warming yang dikirim.</div>
+            </div>
+          </div>
+
+          <div class="column">
+            <div class="card">
+              <div class="card-title"><span>Sender</span> Pilih Akun WhatsApp</div>
+              <div class="info-banner warming-banner">
+                <strong>Pilih minimal 2 akun.</strong>
+                <span>Hanya akun yang online dan sudah login yang akan dipakai. Sistem akan memasangkan akun secara acak agar pola kirim terlihat lebih natural.</span>
+              </div>
+              <div id="warmingAccountsList" class="warming-account-list" style="margin-top:16px;">
+                <div class="empty-state-inline">Memuat akun WhatsApp...</div>
+              </div>
+              <div class="warming-warning" id="warmingAccountWarning">Belum ada sender yang dipilih. Minimal diperlukan 2 akun.</div>
+            </div>
+
+            <div class="card">
+              <div class="card-title"><span>Monitor</span> Ringkasan Aktivitas</div>
+              <div class="dashboard-user-grid">
+                <div class="dashboard-user-item">
+                  <div class="dashboard-user-label">Pasangan terakhir</div>
+                  <div class="dashboard-user-value" id="warmingLastPair">-</div>
+                </div>
+                <div class="dashboard-user-item">
+                  <div class="dashboard-user-label">Kirim terakhir</div>
+                  <div class="dashboard-user-value" id="warmingLastRun">-</div>
+                </div>
+                <div class="dashboard-user-item">
+                  <div class="dashboard-user-label">Sisa kuota hari ini</div>
+                  <div class="dashboard-user-value" id="warmingRemainingToday">0</div>
+                </div>
+                <div class="dashboard-user-item">
+                  <div class="dashboard-user-label">Error terakhir</div>
+                  <div class="dashboard-user-value" id="warmingLastError">-</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="tab-pane" id="tab-contacts">
@@ -1059,6 +1161,6 @@ Content-Type: application/json
     </div>
   </div>
 
-  <script src="/assets/app.js?v=20260503-ai-delay-seconds1"></script>
+  <script src="/assets/app.js?v=20260506-warming-up1"></script>
 </body>
 </html>

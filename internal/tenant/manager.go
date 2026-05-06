@@ -14,6 +14,7 @@ import (
 	"github.com/azkazamdigital/wa-gateway/internal/broadcast"
 	"github.com/azkazamdigital/wa-gateway/internal/chathistory"
 	"github.com/azkazamdigital/wa-gateway/internal/storage"
+	"github.com/azkazamdigital/wa-gateway/internal/warming"
 	webhookpkg "github.com/azkazamdigital/wa-gateway/internal/webhook"
 	"github.com/azkazamdigital/wa-gateway/internal/whatsapp"
 	"go.mau.fi/whatsmeow"
@@ -27,6 +28,7 @@ type Tenant struct {
 	AI          *ai.Service
 	ChatHistory *chathistory.Service
 	Scheduler   *broadcast.Scheduler
+	Warming     *warming.Service
 }
 
 type Manager struct {
@@ -78,6 +80,7 @@ func (m *Manager) Get(user storage.AppUser) (*Tenant, error) {
 		Store:       store,
 		AI:          aiSvc,
 		ChatHistory: chatSvc,
+		Warming:     warming.NewService(user.ID, store, m.logFn),
 	}
 
 	eng := broadcast.GetEngineForUser(user.ID)

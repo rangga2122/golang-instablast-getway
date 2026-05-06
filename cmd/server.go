@@ -29,6 +29,7 @@ import (
 	"github.com/azkazamdigital/wa-gateway/internal/broadcast"
 	"github.com/azkazamdigital/wa-gateway/internal/storage"
 	tenantpkg "github.com/azkazamdigital/wa-gateway/internal/tenant"
+	"github.com/azkazamdigital/wa-gateway/internal/warming"
 	"github.com/azkazamdigital/wa-gateway/internal/whatsapp"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -1618,6 +1619,61 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(fiber.Map{"status": "logged_out", "account_id": whatsapp.ResolveAccountIDForUser(user.ID, accountID)})
+	})
+
+	api.Get("/warming/settings", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		return c.JSON(tenantCtx.Warming.GetStatus())
+	})
+
+	api.Post("/warming/settings", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		var body warming.Settings
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+		status, err := tenantCtx.Warming.SaveSettings(body)
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		if status.Enabled {
+			broadcastWSLog("Warming up berhasil disimpan dan siap dijalankan", "info")
+		} else {
+			broadcastWSLog("Konfigurasi warming up disimpan", "info")
+		}
+		return c.JSON(status)
+	})
+
+	api.Post("/warming/start", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		status, err := tenantCtx.Warming.Start()
+		if err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		broadcastWSLog("Warming up WhatsApp dimulai", "success")
+		return c.JSON(status)
+	})
+
+	api.Post("/warming/stop", func(c *fiber.Ctx) error {
+		_, tenantCtx, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		status, err := tenantCtx.Warming.Stop()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+		}
+		broadcastWSLog("Warming up WhatsApp dihentikan", "warning")
+		return c.JSON(status)
 	})
 
 	api.Post("/send/text", func(c *fiber.Ctx) error {

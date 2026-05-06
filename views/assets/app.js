@@ -58,6 +58,7 @@ let latestBroadcastProgress = null;
 let historyQueueSchedulesCache = [];
 let broadcastAIImprovedDraft = '';
 let broadcastSpintaxOriginalMessage = '';
+let warmingState = null;
 const aiInstructionProfiles = {
   ramah: 'Jawab singkat, ramah, sopan, hangat, dan mudah dipahami dalam bahasa Indonesia. Fokus bantu customer tanpa bertele-tele.',
   profesional: 'Jawab singkat, profesional, jelas, rapi, dan sopan dalam bahasa Indonesia. Hindari candaan berlebihan dan tetap to the point.',
@@ -280,6 +281,7 @@ function applyAccounts(accounts = [], activeID = '') {
   renderToolsAccountSelect();
   renderPersonalAccountSelect();
   renderAIAccountPicker();
+  renderWarmingAccountList();
 }
 
 function renderBroadcastAccountSelect() {
@@ -1129,6 +1131,180 @@ async function deleteAccount(accountID) {
   }
 }
 
+function collectWarmingSelectedAccountIDs() {
+  return Array.from(document.querySelectorAll('#warmingAccountsList input[type="checkbox"]:checked'))
+    .map(el => String(el.value || '').trim())
+    .filter(Boolean);
+}
+
+function toggleWarmingAccount() {
+  if (!warmingState) warmingState = {};
+  warmingState.selected_account_ids = collectWarmingSelectedAccountIDs();
+  renderWarmingAccountList();
+}
+
+function renderWarmingAccountList() {
+  const wrap = $('warmingAccountsList');
+  const warning = $('warmingAccountWarning');
+  if (!wrap) return;
+  const selectedIDs = new Set((warmingState?.selected_account_ids || []).filter(Boolean));
+
+  if (!waAccounts.length) {
+    wrap.innerHTML = '<div class="empty-state-inline">Belum ada akun WhatsApp. Tambahkan minimal 2 akun lalu login QR terlebih dahulu.</div>';
+    if (warning) warning.textContent = 'Belum ada akun WhatsApp yang bisa dipakai.';
+    return;
+  }
+
+  wrap.innerHTML = waAccounts.map(acc => {
+    const checked = selectedIDs.has(acc.id) ? ' checked' : '';
+    const online = acc.connected && acc.logged_in;
+    const itemClass = `warming-account-item${selectedIDs.has(acc.id) ? ' is-selected' : ''}${online ? '' : ' is-offline'}`;
+    const statusClass = online ? 'warming-account-status online' : 'warming-account-status';
+    const statusText = online ? 'Online' : (acc.status || 'Offline');
+    const phone = acc.phone || '-';
+    return `
+      <label class="${itemClass}">
+        <input type="checkbox" value="${escapeHtml(acc.id)}"${checked} onchange="toggleWarmingAccount()" />
+        <span class="warming-account-copy">
+          <span class="warming-account-name">${escapeHtml(acc.name || 'Akun WhatsApp')}</span>
+          <span class="warming-account-meta">${escapeHtml(phone)} • ${escapeHtml(acc.id)}</span>
+          <span class="${statusClass}">${escapeHtml(statusText)}</span>
+        </span>
+      </label>
+    `;
+  }).join('');
+
+  const selectedCount = collectWarmingSelectedAccountIDs().length;
+  const eligibleCount = waAccounts.filter(acc => acc.connected && acc.logged_in).length;
+  if (warning) {
+    if (selectedCount < 2) {
+      warning.textContent = 'Belum ada sender yang dipilih. Minimal diperlukan 2 akun.';
+    } else if (eligibleCount < 2) {
+      warning.textContent = 'Minimal 2 akun harus online dan sudah login agar warming up bisa jalan.';
+    } else {
+      warning.textContent = `${selectedCount} akun dipilih. Sistem akan memasangkan akun secara acak untuk saling kirim dan saling balas.`;
+    }
+  }
+}
+
+function setWarmingStatusText(message, type = '') {
+  const el = $('warmingStatusText');
+  if (!el) return;
+  el.className = 'status-text';
+  if (type === 'good') el.classList.add('status-good');
+  if (type === 'bad') el.classList.add('status-bad');
+  if (type === 'warn') el.classList.add('status-warn');
+  el.textContent = message || '';
+}
+
+function formatWarmingDateTime(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime()) || date.getFullYear() < 2000) return '-';
+  return date.toLocaleString('id-ID', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function applyWarmingState(data = {}) {
+  warmingState = { ...data };
+  if ($('warmingEnabled')) $('warmingEnabled').checked = !!data.enabled;
+  if ($('warmingDelayMin')) $('warmingDelayMin').value = String(data.delay_min_minutes || 5);
+  if ($('warmingDelayMax')) $('warmingDelayMax').value = String(data.delay_max_minutes || 60);
+  if ($('warmingMessagesPerDay')) $('warmingMessagesPerDay').value = String(data.messages_per_day || 50);
+  if ($('warmingTemplates')) $('warmingTemplates').value = Array.isArray(data.message_templates) ? data.message_templates.join('\n') : '';
+
+  renderWarmingAccountList();
+
+  if ($('warmingRunStatus')) $('warmingRunStatus').textContent = data.running ? 'Berjalan' : (data.enabled ? 'Siap Jalan' : 'Nonaktif');
+  if ($('warmingSentToday')) $('warmingSentToday').textContent = String(data.sent_today || 0);
+  if ($('warmingEligibleCount')) $('warmingEligibleCount').textContent = String(data.eligible_count || 0);
+  if ($('warmingNextRun')) $('warmingNextRun').textContent = formatWarmingDateTime(data.next_run_at);
+  if ($('warmingLastPair')) $('warmingLastPair').textContent = data.last_pair || '-';
+  if ($('warmingLastRun')) $('warmingLastRun').textContent = formatWarmingDateTime(data.last_run_at);
+  if ($('warmingRemainingToday')) $('warmingRemainingToday').textContent = String(data.remaining_today || 0);
+  if ($('warmingLastError')) $('warmingLastError').textContent = data.last_error || '-';
+  if ($('warmingLastMessage')) $('warmingLastMessage').textContent = data.last_message || 'Belum ada pesan warming yang dikirim.';
+
+  if (data.last_error) {
+    setWarmingStatusText(data.last_error, 'bad');
+  } else if (data.running) {
+    setWarmingStatusText('Warming up sedang berjalan. Akun akan saling kirim dan saling balas otomatis sesuai delay.', 'good');
+  } else if (data.enabled) {
+    setWarmingStatusText('Pengaturan warming up sudah aktif. Anda bisa mulai sekarang atau menunggu worker berjalan.', 'warn');
+  } else {
+    setWarmingStatusText('Warming up belum dijalankan.', '');
+  }
+}
+
+async function loadWarmingSettings() {
+  try {
+    if (!waAccounts.length) {
+      await loadAccounts();
+    }
+    const data = await api('/warming/settings');
+    applyWarmingState(data || {});
+  } catch (e) {
+    setWarmingStatusText(e.message, 'bad');
+  }
+}
+
+function getWarmingSettingsPayload() {
+  return {
+    enabled: !!$('warmingEnabled')?.checked,
+    delay_min_minutes: Number($('warmingDelayMin')?.value || 5),
+    delay_max_minutes: Number($('warmingDelayMax')?.value || 60),
+    messages_per_day: Number($('warmingMessagesPerDay')?.value || 50),
+    selected_account_ids: collectWarmingSelectedAccountIDs(),
+    message_templates: String($('warmingTemplates')?.value || '')
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean)
+  };
+}
+
+async function saveWarmingSettings(silent = false) {
+  try {
+    const data = await api('/warming/settings', {
+      method: 'POST',
+      body: JSON.stringify(getWarmingSettingsPayload())
+    });
+    applyWarmingState(data || {});
+    if (!silent) showToast('Pengaturan warming up disimpan', 'success');
+    return data;
+  } catch (e) {
+    setWarmingStatusText(e.message, 'bad');
+    if (!silent) showToast('Gagal simpan warming up: ' + e.message, 'error');
+    throw e;
+  }
+}
+
+async function startWarmingUp() {
+  try {
+    await saveWarmingSettings(true);
+    const data = await api('/warming/start', { method: 'POST' });
+    applyWarmingState(data || {});
+    showToast('Warming up dimulai', 'success');
+  } catch (e) {
+    showToast('Gagal mulai warming up: ' + e.message, 'error');
+  }
+}
+
+async function stopWarmingUp() {
+  try {
+    const data = await api('/warming/stop', { method: 'POST' });
+    applyWarmingState(data || {});
+    if ($('warmingEnabled')) $('warmingEnabled').checked = false;
+    showToast('Warming up dihentikan', 'success');
+  } catch (e) {
+    showToast('Gagal stop warming up: ' + e.message, 'error');
+  }
+}
+
 // ===== Tab Navigation =====
 function switchTab(tab) {
   normalizeLegacyLayout();
@@ -1156,6 +1332,10 @@ function switchTab(tab) {
     renderToolsAccountSelect();
     loadWAGroups();
     loadChatHistory();
+  }
+  if (paneTab === 'warming') {
+    loadAccounts();
+    loadWarmingSettings();
   }
   if (paneTab === 'settings') loadSettings();
   if (paneTab === 'ai') {
