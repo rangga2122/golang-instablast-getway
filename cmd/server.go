@@ -431,19 +431,26 @@ func runServer(cmd_ *cobra.Command, args []string) {
 	})
 
 	app.Get("/health", func(c *fiber.Ctx) error {
+		stats := whatsapp.GetConnectionStats()
 		return c.JSON(fiber.Map{
 			"status":                "ok",
 			"service":               "wa-gateway",
-			"connected_any_account": anyAccountConnectedAnyUser(),
+			"connected_any_account": stats.ConnectedAccounts > 0,
+			"whatsapp":              stats,
 			"active_account_id":     "",
 		})
 	})
 
 	app.Get("/health/whatsapp", func(c *fiber.Ctx) error {
-		if anyAccountConnectedAnyUser() {
-			return c.JSON(fiber.Map{"status": "ok", "connected": true})
+		stats := whatsapp.GetConnectionStats()
+		if stats.ConnectedAccounts > 0 {
+			status := "ok"
+			if stats.ProblemAccounts > 0 {
+				status = "degraded"
+			}
+			return c.JSON(fiber.Map{"status": status, "connected": true, "whatsapp": stats})
 		}
-		return c.Status(http.StatusServiceUnavailable).JSON(fiber.Map{"status": "not_connected", "connected": false})
+		return c.Status(http.StatusServiceUnavailable).JSON(fiber.Map{"status": "not_connected", "connected": false, "whatsapp": stats})
 	})
 
 	api := app.Group("/api")

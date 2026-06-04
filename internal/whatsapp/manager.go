@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/azkazamdigital/wa-gateway/config"
+	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -20,6 +21,12 @@ import (
 const (
 	accountMetaPrefKey   = "wa_accounts_meta"
 	activeAccountPrefKey = "wa_active_account_id"
+
+	connectionSupervisorInterval       = 30 * time.Second
+	connectionSupervisorTimeout        = 25 * time.Second
+	connectionSupervisorUnhealthyGrace = 90 * time.Second
+	connectionReconnectBackoffMin      = 15 * time.Second
+	connectionReconnectBackoffMax      = 10 * time.Minute
 )
 
 type PreferenceStore interface {
@@ -42,19 +49,21 @@ type AccountMeta struct {
 }
 
 type AccountInfo struct {
-	ID             string    `json:"id"`
-	Name           string    `json:"name"`
-	JID            string    `json:"jid"`
-	Connected      bool      `json:"connected"`
-	LoggedIn       bool      `json:"logged_in"`
-	Active         bool      `json:"active"`
-	Status         string    `json:"status"`
-	CreatedAt      time.Time `json:"created_at"`
-	IsPending      bool      `json:"is_pending"`
-	Phone          string    `json:"phone"`
-	WebhookEnabled bool      `json:"webhook_enabled"`
-	WebhookURL     string    `json:"webhook_url"`
-	WebhookSecret  string    `json:"webhook_secret,omitempty"`
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	JID               string    `json:"jid"`
+	Connected         bool      `json:"connected"`
+	LoggedIn          bool      `json:"logged_in"`
+	Active            bool      `json:"active"`
+	Status            string    `json:"status"`
+	CreatedAt         time.Time `json:"created_at"`
+	IsPending         bool      `json:"is_pending"`
+	Phone             string    `json:"phone"`
+	WebhookEnabled    bool      `json:"webhook_enabled"`
+	WebhookURL        string    `json:"webhook_url"`
+	WebhookSecret     string    `json:"webhook_secret,omitempty"`
+	LastConnectedAt   time.Time `json:"last_connected_at,omitempty"`
+	ReconnectFailures int       `json:"reconnect_failures"`
 }
 
 type Session struct {
@@ -64,15 +73,24 @@ type Session struct {
 	connectMu sync.Mutex
 	sendMu    sync.Mutex
 	healthy   bool
+
+	unhealthySince           time.Time
+	nextReconnectAt          time.Time
+	consecutiveReconnectFail int
+	autoReconnectBlocked     bool
+	autoReconnectBlockedTill time.Time
+	supervisorReconnectRun   bool
+	lastConnectedAt          time.Time
 }
 
 type Manager struct {
-	mu           sync.RWMutex
-	container    *sqlstore.Container
-	prefs        PreferenceStore
-	eventHandler SessionEventHandler
-	sessions     map[string]*Session
-	activeID     string
+	mu               sync.RWMutex
+	container        *sqlstore.Container
+	prefs            PreferenceStore
+	eventHandler     SessionEventHandler
+	sessions         map[string]*Session
+	activeID         string
+	supervisorCancel context.CancelFunc
 }
 
 func NewManager(ctx context.Context, container *sqlstore.Container, prefs PreferenceStore, eventHandler SessionEventHandler) (*Manager, error) {
@@ -85,6 +103,9 @@ func NewManager(ctx context.Context, container *sqlstore.Container, prefs Prefer
 	if err := m.loadSessions(ctx); err != nil {
 		return nil, err
 	}
+	supervisorCtx, cancel := context.WithCancel(ctx)
+	m.supervisorCancel = cancel
+	go m.connectionSupervisor(supervisorCtx)
 	return m, nil
 }
 
@@ -168,6 +189,8 @@ func (m *Manager) loadSessions(ctx context.Context) error {
 func (m *Manager) newClient(session *Session) *whatsmeow.Client {
 	clientLog := waLog.Stdout("Client", config.WhatsappLogLevel, true)
 	client := whatsmeow.NewClient(session.device, clientLog)
+	client.EnableAutoReconnect = true
+	client.InitialAutoReconnect = session.device != nil && session.device.ID != nil
 	client.AddEventHandler(func(evt interface{}) {
 		m.onEvent(session.meta.ID, evt, client)
 	})
@@ -179,21 +202,34 @@ func (m *Manager) onEvent(accountID string, evt interface{}, client *whatsmeow.C
 	session := m.sessions[accountID]
 	if session != nil {
 		switch event := evt.(type) {
-		case *events.Connected, *events.KeepAliveRestored:
-			session.healthy = true
+		case *events.Connected:
+			m.markSessionHealthyLocked(session)
+			session.lastConnectedAt = time.Now()
+		case *events.KeepAliveRestored:
+			m.markSessionHealthyLocked(session)
 		case *events.KeepAliveTimeout:
 			if event.ErrorCount >= 2 {
-				session.healthy = false
+				m.markSessionUnhealthyLocked(session)
 			}
-		case *events.Disconnected,
-			*events.LoggedOut,
-			*events.StreamReplaced,
-			*events.ConnectFailure,
-			*events.StreamError,
-			*events.TemporaryBan,
-			*events.ClientOutdated,
-			*events.CATRefreshError:
-			session.healthy = false
+		case *events.Disconnected, *events.StreamError:
+			m.markSessionUnhealthyLocked(session)
+		case *events.LoggedOut:
+			m.markSessionUnhealthyLocked(session)
+			session.autoReconnectBlocked = true
+		case *events.StreamReplaced:
+			m.markSessionUnhealthyLocked(session)
+			session.autoReconnectBlocked = true
+		case *events.TemporaryBan:
+			m.markSessionUnhealthyLocked(session)
+			session.autoReconnectBlockedTill = time.Now().Add(event.Expire)
+		case *events.ClientOutdated, *events.CATRefreshError:
+			m.markSessionUnhealthyLocked(session)
+			session.autoReconnectBlocked = true
+		case *events.ConnectFailure:
+			m.markSessionUnhealthyLocked(session)
+			if event.Reason.IsLoggedOut() {
+				session.autoReconnectBlocked = true
+			}
 		}
 
 		if client != nil && client.Store != nil && client.Store.ID != nil {
@@ -240,6 +276,12 @@ func (m *Manager) AutoConnectAll() {
 		go func(accountID string) {
 			_ = m.Connect(context.Background(), accountID)
 		}(account.ID)
+	}
+}
+
+func (m *Manager) Close() {
+	if m.supervisorCancel != nil {
+		m.supervisorCancel()
 	}
 }
 
@@ -440,6 +482,9 @@ func (m *Manager) Connect(ctx context.Context, accountID string) error {
 	if errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 		return nil
 	}
+	if err != nil {
+		m.recordReconnectFailure(accountID)
+	}
 	return err
 }
 
@@ -468,6 +513,7 @@ func (m *Manager) Reconnect(ctx context.Context, accountID string) error {
 	session.connectMu.Lock()
 	defer session.connectMu.Unlock()
 
+	m.clearReconnectBlock(accountID)
 	m.setHealthy(accountID, false)
 	if session.client.IsConnected() {
 		session.client.Disconnect()
@@ -482,12 +528,17 @@ func (m *Manager) Reconnect(ctx context.Context, accountID string) error {
 	}
 
 	if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+		m.recordReconnectFailure(accountID)
 		return err
 	}
 	if session.client.Store == nil || session.client.Store.ID == nil {
 		return nil
 	}
-	return m.waitUntilReady(ctx, accountID, session.client)
+	err := m.waitUntilReady(ctx, accountID, session.client)
+	if err != nil {
+		m.recordReconnectFailure(accountID)
+	}
+	return err
 }
 
 func (m *Manager) EnsureConnected(ctx context.Context, accountID string) (*whatsmeow.Client, error) {
@@ -511,9 +562,11 @@ func (m *Manager) EnsureConnected(ctx context.Context, accountID string) (*whats
 		session.client.Disconnect()
 	}
 	if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+		m.recordReconnectFailure(accountID)
 		return nil, err
 	}
 	if err := m.waitUntilReady(ctx, accountID, session.client); err != nil {
+		m.recordReconnectFailure(accountID)
 		return nil, err
 	}
 	return session.client, nil
@@ -548,7 +601,11 @@ func (m *Manager) setHealthy(accountID string, healthy bool) {
 	defer m.mu.Unlock()
 	session := m.sessions[m.resolveLocked(accountID)]
 	if session != nil {
-		session.healthy = healthy
+		if healthy {
+			m.markSessionHealthyLocked(session)
+		} else {
+			m.markSessionUnhealthyLocked(session)
+		}
 	}
 }
 
@@ -569,6 +626,131 @@ func (m *Manager) waitUntilReady(ctx context.Context, accountID string, client *
 	}
 }
 
+func (m *Manager) markSessionHealthyLocked(session *Session) {
+	session.healthy = true
+	session.unhealthySince = time.Time{}
+	session.nextReconnectAt = time.Time{}
+	session.consecutiveReconnectFail = 0
+	session.autoReconnectBlocked = false
+	session.autoReconnectBlockedTill = time.Time{}
+}
+
+func (m *Manager) markSessionUnhealthyLocked(session *Session) {
+	session.healthy = false
+	if session.unhealthySince.IsZero() {
+		session.unhealthySince = time.Now()
+	}
+}
+
+func (m *Manager) clearReconnectBlock(accountID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session := m.sessions[m.resolveLocked(accountID)]
+	if session == nil {
+		return
+	}
+	session.autoReconnectBlocked = false
+	session.autoReconnectBlockedTill = time.Time{}
+	session.nextReconnectAt = time.Time{}
+}
+
+func (m *Manager) recordReconnectFailure(accountID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session := m.sessions[m.resolveLocked(accountID)]
+	if session == nil {
+		return
+	}
+	session.consecutiveReconnectFail++
+	session.nextReconnectAt = time.Now().Add(reconnectBackoff(session.consecutiveReconnectFail))
+}
+
+func reconnectBackoff(failures int) time.Duration {
+	if failures <= 1 {
+		return connectionReconnectBackoffMin
+	}
+	delay := connectionReconnectBackoffMin
+	for i := 1; i < failures && delay < connectionReconnectBackoffMax; i++ {
+		delay *= 2
+	}
+	if delay > connectionReconnectBackoffMax {
+		return connectionReconnectBackoffMax
+	}
+	return delay
+}
+
+func (m *Manager) connectionSupervisor(ctx context.Context) {
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			m.superviseConnections(ctx)
+			timer.Reset(connectionSupervisorInterval)
+		}
+	}
+}
+
+func (m *Manager) superviseConnections(ctx context.Context) {
+	now := time.Now()
+	accountIDs := make([]string, 0)
+
+	m.mu.Lock()
+	for accountID, session := range m.sessions {
+		if session == nil || session.client == nil || session.client.Store == nil || session.client.Store.ID == nil {
+			continue
+		}
+		if session.supervisorReconnectRun {
+			continue
+		}
+		if session.autoReconnectBlocked {
+			continue
+		}
+		if !session.autoReconnectBlockedTill.IsZero() && now.Before(session.autoReconnectBlockedTill) {
+			continue
+		}
+		if !session.nextReconnectAt.IsZero() && now.Before(session.nextReconnectAt) {
+			continue
+		}
+		if session.healthy && session.client.IsConnected() && session.client.IsLoggedIn() {
+			continue
+		}
+		if session.client.IsConnected() && session.client.IsLoggedIn() &&
+			!session.unhealthySince.IsZero() && now.Sub(session.unhealthySince) < connectionSupervisorUnhealthyGrace {
+			continue
+		}
+		session.supervisorReconnectRun = true
+		accountIDs = append(accountIDs, accountID)
+	}
+	m.mu.Unlock()
+
+	for _, accountID := range accountIDs {
+		go m.superviseConnection(ctx, accountID)
+	}
+}
+
+func (m *Manager) superviseConnection(ctx context.Context, accountID string) {
+	defer func() {
+		m.mu.Lock()
+		if session := m.sessions[accountID]; session != nil {
+			session.supervisorReconnectRun = false
+		}
+		m.mu.Unlock()
+	}()
+
+	connectCtx, cancel := context.WithTimeout(ctx, connectionSupervisorTimeout)
+	_, err := m.EnsureConnected(connectCtx, accountID)
+	cancel()
+	if err != nil {
+		logrus.WithError(err).WithField("account_id", accountID).Warn("WhatsApp connection supervisor reconnect failed")
+		return
+	}
+	logrus.WithField("account_id", accountID).Info("WhatsApp connection supervisor restored session")
+}
+
 func (m *Manager) resolveLocked(accountID string) string {
 	if accountID != "" {
 		return accountID
@@ -578,16 +760,18 @@ func (m *Manager) resolveLocked(accountID string) string {
 
 func (m *Manager) accountInfoLocked(session *Session) AccountInfo {
 	info := AccountInfo{
-		ID:             session.meta.ID,
-		Name:           session.meta.Name,
-		JID:            session.meta.JID,
-		CreatedAt:      session.meta.CreatedAt,
-		Active:         session.meta.ID == m.activeID,
-		IsPending:      session.meta.JID == "",
-		Status:         "Belum login",
-		WebhookEnabled: session.meta.WebhookEnabled,
-		WebhookURL:     session.meta.WebhookURL,
-		WebhookSecret:  session.meta.WebhookSecret,
+		ID:                session.meta.ID,
+		Name:              session.meta.Name,
+		JID:               session.meta.JID,
+		CreatedAt:         session.meta.CreatedAt,
+		Active:            session.meta.ID == m.activeID,
+		IsPending:         session.meta.JID == "",
+		Status:            "Belum login",
+		WebhookEnabled:    session.meta.WebhookEnabled,
+		WebhookURL:        session.meta.WebhookURL,
+		WebhookSecret:     session.meta.WebhookSecret,
+		LastConnectedAt:   session.lastConnectedAt,
+		ReconnectFailures: session.consecutiveReconnectFail,
 	}
 	if session.client != nil {
 		info.Connected = session.client.IsConnected()
