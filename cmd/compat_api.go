@@ -452,7 +452,7 @@ func compatSendImage(c *fiber.Ctx) error {
 }
 
 func compatSendPoll(c *fiber.Ctx) error {
-	_, accountID, client, err := compatResolveAccount(c, false)
+	user, accountID, client, err := compatResolveAccount(c, false)
 	if err != nil {
 		return compatAPIError(c, fiber.StatusBadRequest, "DEVICE_ID_REQUIRED", err.Error(), nil)
 	}
@@ -472,7 +472,7 @@ func compatSendPoll(c *fiber.Ctx) error {
 		return compatAPIError(c, fiber.StatusBadRequest, "BAD_REQUEST", "phone, name, dan options wajib diisi", nil)
 	}
 	msg := client.BuildPollCreation(body.Name, body.Options, body.SelectableOptionsCount)
-	if _, err := client.SendMessage(c.UserContext(), parsePhoneToJID(body.Phone), msg); err != nil {
+	if err := whatsapp.SendMessageForUserAccount(c.UserContext(), user.ID, accountID, parsePhoneToJID(body.Phone), msg); err != nil {
 		return compatAPIError(c, fiber.StatusBadRequest, "SEND_FAILED", err.Error(), nil)
 	}
 	return compatOK(c, "Poll sent", fiber.Map{"device_id": accountID, "phone": normalizePhone(body.Phone), "status": "sent"})

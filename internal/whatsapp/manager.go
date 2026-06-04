@@ -2,6 +2,7 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
@@ -56,9 +58,12 @@ type AccountInfo struct {
 }
 
 type Session struct {
-	meta   AccountMeta
-	device *store.Device
-	client *whatsmeow.Client
+	meta      AccountMeta
+	device    *store.Device
+	client    *whatsmeow.Client
+	connectMu sync.Mutex
+	sendMu    sync.Mutex
+	healthy   bool
 }
 
 type Manager struct {
@@ -172,14 +177,34 @@ func (m *Manager) newClient(session *Session) *whatsmeow.Client {
 func (m *Manager) onEvent(accountID string, evt interface{}, client *whatsmeow.Client) {
 	m.mu.Lock()
 	session := m.sessions[accountID]
-	if session != nil && client != nil && client.Store != nil && client.Store.ID != nil {
-		if session.meta.JID != client.Store.ID.String() {
-			session.meta.JID = client.Store.ID.String()
+	if session != nil {
+		switch event := evt.(type) {
+		case *events.Connected, *events.KeepAliveRestored:
+			session.healthy = true
+		case *events.KeepAliveTimeout:
+			if event.ErrorCount >= 2 {
+				session.healthy = false
+			}
+		case *events.Disconnected,
+			*events.LoggedOut,
+			*events.StreamReplaced,
+			*events.ConnectFailure,
+			*events.StreamError,
+			*events.TemporaryBan,
+			*events.ClientOutdated,
+			*events.CATRefreshError:
+			session.healthy = false
 		}
-		if session.meta.Name == "" {
-			session.meta.Name = fmt.Sprintf("Akun %s", client.Store.ID.User)
+
+		if client != nil && client.Store != nil && client.Store.ID != nil {
+			if session.meta.JID != client.Store.ID.String() {
+				session.meta.JID = client.Store.ID.String()
+			}
+			if session.meta.Name == "" {
+				session.meta.Name = fmt.Sprintf("Akun %s", client.Store.ID.User)
+			}
+			m.saveStateLocked()
 		}
-		m.saveStateLocked()
 	}
 	m.mu.Unlock()
 
@@ -313,8 +338,12 @@ func (m *Manager) DeleteAccount(ctx context.Context, accountID string) error {
 	m.saveStateLocked()
 	m.mu.Unlock()
 
-	if session.client != nil && session.client.IsConnected() {
-		session.client.Disconnect()
+	if session.client != nil {
+		session.connectMu.Lock()
+		if session.client.IsConnected() {
+			session.client.Disconnect()
+		}
+		session.connectMu.Unlock()
 	}
 	if session.device != nil && session.device.ID != nil {
 		_ = session.device.Delete(ctx)
@@ -396,25 +425,148 @@ func (m *Manager) ListAccounts() []AccountInfo {
 }
 
 func (m *Manager) Connect(ctx context.Context, accountID string) error {
-	client := m.GetClient(accountID)
-	if client == nil {
+	session := m.getSession(accountID)
+	if session == nil || session.client == nil {
 		return fmt.Errorf("account not found")
 	}
-	if client.IsConnected() {
+
+	session.connectMu.Lock()
+	defer session.connectMu.Unlock()
+
+	if session.client.IsConnected() {
 		return nil
 	}
-	return client.Connect()
+	err := session.client.ConnectContext(ctx)
+	if errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+		return nil
+	}
+	return err
 }
 
 func (m *Manager) Disconnect(accountID string) error {
-	client := m.GetClient(accountID)
-	if client == nil {
+	session := m.getSession(accountID)
+	if session == nil || session.client == nil {
 		return fmt.Errorf("account not found")
 	}
-	if client.IsConnected() {
-		client.Disconnect()
+
+	session.connectMu.Lock()
+	defer session.connectMu.Unlock()
+
+	m.setHealthy(accountID, false)
+	if session.client.IsConnected() {
+		session.client.Disconnect()
 	}
 	return nil
+}
+
+func (m *Manager) Reconnect(ctx context.Context, accountID string) error {
+	session := m.getSession(accountID)
+	if session == nil || session.client == nil {
+		return fmt.Errorf("account not found")
+	}
+
+	session.connectMu.Lock()
+	defer session.connectMu.Unlock()
+
+	m.setHealthy(accountID, false)
+	if session.client.IsConnected() {
+		session.client.Disconnect()
+	}
+
+	timer := time.NewTimer(250 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+	}
+
+	if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+		return err
+	}
+	if session.client.Store == nil || session.client.Store.ID == nil {
+		return nil
+	}
+	return m.waitUntilReady(ctx, accountID, session.client)
+}
+
+func (m *Manager) EnsureConnected(ctx context.Context, accountID string) (*whatsmeow.Client, error) {
+	session := m.getSession(accountID)
+	if session == nil || session.client == nil {
+		return nil, fmt.Errorf("account not found")
+	}
+
+	session.connectMu.Lock()
+	defer session.connectMu.Unlock()
+
+	if m.sessionReady(accountID, session.client) {
+		return session.client, nil
+	}
+	if session.client.Store == nil || session.client.Store.ID == nil {
+		return nil, fmt.Errorf("account is not logged in")
+	}
+
+	m.setHealthy(accountID, false)
+	if session.client.IsConnected() {
+		session.client.Disconnect()
+	}
+	if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+		return nil, err
+	}
+	if err := m.waitUntilReady(ctx, accountID, session.client); err != nil {
+		return nil, err
+	}
+	return session.client, nil
+}
+
+func (m *Manager) IsReady(accountID string) bool {
+	session := m.getSession(accountID)
+	if session == nil || session.client == nil {
+		return false
+	}
+	return m.sessionReady(accountID, session.client)
+}
+
+func (m *Manager) getSession(accountID string) *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sessions[m.resolveLocked(accountID)]
+}
+
+func (m *Manager) sessionReady(accountID string, client *whatsmeow.Client) bool {
+	if client == nil || !client.IsConnected() || !client.IsLoggedIn() {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	session := m.sessions[m.resolveLocked(accountID)]
+	return session != nil && session.client == client && session.healthy
+}
+
+func (m *Manager) setHealthy(accountID string, healthy bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session := m.sessions[m.resolveLocked(accountID)]
+	if session != nil {
+		session.healthy = healthy
+	}
+}
+
+func (m *Manager) waitUntilReady(ctx context.Context, accountID string, client *whatsmeow.Client) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if client.IsConnected() && client.IsLoggedIn() {
+			m.setHealthy(accountID, true)
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (m *Manager) resolveLocked(accountID string) string {
@@ -440,9 +592,14 @@ func (m *Manager) accountInfoLocked(session *Session) AccountInfo {
 	if session.client != nil {
 		info.Connected = session.client.IsConnected()
 		info.LoggedIn = session.client.IsLoggedIn()
+		if info.LoggedIn && !session.healthy {
+			info.Connected = false
+		}
 		switch {
 		case info.Connected && info.LoggedIn:
 			info.Status = "Online"
+		case info.LoggedIn:
+			info.Status = "Koneksi bermasalah"
 		case info.Connected:
 			info.Status = "Terhubung"
 		case info.IsPending:

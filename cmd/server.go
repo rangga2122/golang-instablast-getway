@@ -1689,8 +1689,8 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err := c.BodyParser(&body); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
 		}
-		if !whatsapp.IsClientConnectedForAccountForUser(user.ID, body.AccountID) {
-			return c.Status(503).JSON(fiber.Map{"error": "WhatsApp not connected"})
+		if err := whatsapp.EnsureClientConnectedForAccountForUser(c.UserContext(), user.ID, body.AccountID); err != nil {
+			return c.Status(503).JSON(fiber.Map{"error": "WhatsApp not connected: " + err.Error()})
 		}
 		jid := parsePhoneToJID(body.Phone)
 		if err := whatsapp.SendTextForUserAccount(context.Background(), user.ID, body.AccountID, jid, body.Message); err != nil {
@@ -1714,8 +1714,8 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err := c.BodyParser(&body); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
 		}
-		if !whatsapp.IsClientConnectedForAccountForUser(user.ID, body.AccountID) {
-			return c.Status(503).JSON(fiber.Map{"error": "WhatsApp not connected"})
+		if err := whatsapp.EnsureClientConnectedForAccountForUser(c.UserContext(), user.ID, body.AccountID); err != nil {
+			return c.Status(503).JSON(fiber.Map{"error": "WhatsApp not connected: " + err.Error()})
 		}
 		imgData, err := base64.StdEncoding.DecodeString(body.ImageB64)
 		if err != nil {
@@ -1862,8 +1862,8 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err := c.BodyParser(&body); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
 		}
-		if !whatsapp.IsClientConnectedForAccountForUser(user.ID, body.AccountID) {
-			return c.Status(503).JSON(fiber.Map{"error": "WhatsApp not connected"})
+		if err := whatsapp.EnsureClientConnectedForAccountForUser(c.UserContext(), user.ID, body.AccountID); err != nil {
+			return c.Status(503).JSON(fiber.Map{"error": "WhatsApp not connected: " + err.Error()})
 		}
 		nums := broadcast.ParseNumbers(body.Numbers)
 		if len(nums) == 0 {
@@ -1934,8 +1934,8 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err := c.BodyParser(&body); err != nil {
 			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
 		}
-		if !whatsapp.IsClientConnectedForAccountForUser(user.ID, body.AccountID) {
-			return c.Status(503).JSON(fiber.Map{"error": "WhatsApp not connected"})
+		if err := whatsapp.EnsureClientConnectedForAccountForUser(c.UserContext(), user.ID, body.AccountID); err != nil {
+			return c.Status(503).JSON(fiber.Map{"error": "WhatsApp not connected: " + err.Error()})
 		}
 
 		headers, data, err := parsePersonalCSVData(body.CSVData)

@@ -1,6 +1,7 @@
 package broadcast
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
@@ -112,8 +113,8 @@ func (s *Scheduler) checkDueSchedules() {
 }
 
 func (s *Scheduler) startSchedule(rec storage.BroadcastSchedule) error {
-	if !whatsapp.IsClientConnectedForAccountForUser(s.userID, rec.AccountID) {
-		return fmt.Errorf("akun WhatsApp %s tidak terhubung", rec.AccountName)
+	if err := whatsapp.EnsureClientConnectedForAccountForUser(context.Background(), s.userID, rec.AccountID); err != nil {
+		return fmt.Errorf("akun WhatsApp %s tidak terhubung: %w", rec.AccountName, err)
 	}
 	if strings.TrimSpace(rec.ScheduleType) == "" {
 		rec.ScheduleType = "broadcast"

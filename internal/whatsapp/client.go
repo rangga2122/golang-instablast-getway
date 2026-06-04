@@ -2,7 +2,9 @@ package whatsapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -257,11 +259,22 @@ func IsClientConnectedForAccount(accountID string) bool {
 }
 
 func IsClientConnectedForAccountForUser(userID, accountID string) bool {
-	c := GetClientByAccountForUser(userID, accountID)
-	if c == nil {
+	mgr := GetManagerForUser(userID)
+	if mgr == nil {
 		return false
 	}
-	return c.IsConnected() && c.IsLoggedIn()
+	return mgr.IsReady(accountID)
+}
+
+func EnsureClientConnectedForAccountForUser(ctx context.Context, userID, accountID string) error {
+	mgr := GetManagerForUser(userID)
+	if mgr == nil {
+		return fmt.Errorf("manager not initialized")
+	}
+	ctx, cancel := connectionContext(ctx)
+	defer cancel()
+	_, err := mgr.EnsureConnected(ctx, accountID)
+	return err
 }
 
 func GetClientJID() string {
@@ -301,11 +314,9 @@ func ReconnectForAccountForUser(ctx context.Context, userID, accountID string) e
 	if mgr == nil {
 		return fmt.Errorf("manager not initialized")
 	}
-	if err := mgr.Disconnect(accountID); err != nil {
-		return err
-	}
-	time.Sleep(1 * time.Second)
-	return mgr.Connect(ctx, accountID)
+	ctx, cancel := connectionContext(ctx)
+	defer cancel()
+	return mgr.Reconnect(ctx, accountID)
 }
 
 func Logout() error {
@@ -341,13 +352,49 @@ func SendTextForAccount(ctx context.Context, accountID string, jid types.JID, te
 }
 
 func SendTextForUserAccount(ctx context.Context, userID, accountID string, jid types.JID, text string) error {
-	c := GetClientByAccountForUser(userID, accountID)
-	if c == nil {
-		return fmt.Errorf("client not initialized")
-	}
 	msg := &waProto.Message{Conversation: proto.String(text)}
-	_, err := c.SendMessage(ctx, jid, msg)
-	return err
+	return SendMessageForUserAccount(ctx, userID, accountID, jid, msg)
+}
+
+func SendMessageForUserAccount(ctx context.Context, userID, accountID string, jid types.JID, msg *waProto.Message) error {
+	mgr := GetManagerForUser(userID)
+	if mgr == nil {
+		return fmt.Errorf("manager not initialized")
+	}
+	accountID = mgr.ResolveAccountID(accountID)
+	session := mgr.getSession(accountID)
+	if session == nil {
+		return fmt.Errorf("account not found")
+	}
+
+	session.sendMu.Lock()
+	defer session.sendMu.Unlock()
+
+	connectCtx, cancel := connectionContext(ctx)
+	client, err := mgr.EnsureConnected(connectCtx, accountID)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("WhatsApp connection unavailable: %w", err)
+	}
+
+	messageID := client.GenerateMessageID()
+	_, err = client.SendMessage(ctx, jid, msg, whatsmeow.SendRequestExtra{ID: messageID})
+	if err == nil || !isRetryableSendError(err) {
+		return err
+	}
+
+	reconnectCtx, reconnectCancel := connectionContext(ctx)
+	reconnectErr := mgr.Reconnect(reconnectCtx, accountID)
+	reconnectCancel()
+	if reconnectErr != nil {
+		return fmt.Errorf("send failed (%v), reconnect failed: %w", err, reconnectErr)
+	}
+
+	_, retryErr := client.SendMessage(ctx, jid, msg, whatsmeow.SendRequestExtra{ID: messageID})
+	if retryErr != nil {
+		return fmt.Errorf("send failed after reconnect: %w", retryErr)
+	}
+	return nil
 }
 
 func SendImage(ctx context.Context, jid types.JID, imageBytes []byte, mimetype string, caption string) error {
@@ -359,10 +406,17 @@ func SendImageForAccount(ctx context.Context, accountID string, jid types.JID, i
 }
 
 func SendImageForUserAccount(ctx context.Context, userID, accountID string, jid types.JID, imageBytes []byte, mimetype string, caption string) error {
-	c := GetClientByAccountForUser(userID, accountID)
-	if c == nil {
-		return fmt.Errorf("client not initialized")
+	mgr := GetManagerForUser(userID)
+	if mgr == nil {
+		return fmt.Errorf("manager not initialized")
 	}
+	connectCtx, cancel := connectionContext(ctx)
+	c, err := mgr.EnsureConnected(connectCtx, accountID)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("WhatsApp connection unavailable: %w", err)
+	}
+
 	uploaded, err := c.Upload(ctx, imageBytes, whatsmeow.MediaImage)
 	if err != nil {
 		return fmt.Errorf("failed to upload image: %w", err)
@@ -380,8 +434,7 @@ func SendImageForUserAccount(ctx context.Context, userID, accountID string, jid 
 			FileLength:    proto.Uint64(uploaded.FileLength),
 		},
 	}
-	_, err = c.SendMessage(ctx, jid, msg)
-	return err
+	return SendMessageForUserAccount(ctx, userID, accountID, jid, msg)
 }
 
 func SendMediaForUserAccount(ctx context.Context, userID, accountID string, jid types.JID, mediaBytes []byte, mimetype, filename, caption string) error {
@@ -393,9 +446,15 @@ func SendMediaForUserAccount(ctx context.Context, userID, accountID string, jid 
 		return SendImageForUserAccount(ctx, userID, accountID, jid, mediaBytes, mimetype, caption)
 	}
 
-	c := GetClientByAccountForUser(userID, accountID)
-	if c == nil {
-		return fmt.Errorf("client not initialized")
+	mgr := GetManagerForUser(userID)
+	if mgr == nil {
+		return fmt.Errorf("manager not initialized")
+	}
+	connectCtx, cancel := connectionContext(ctx)
+	c, err := mgr.EnsureConnected(connectCtx, accountID)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("WhatsApp connection unavailable: %w", err)
 	}
 
 	if strings.HasPrefix(mimetype, "video/") {
@@ -415,8 +474,7 @@ func SendMediaForUserAccount(ctx context.Context, userID, accountID string, jid 
 				FileLength:    proto.Uint64(uploaded.FileLength),
 			},
 		}
-		_, err = c.SendMessage(ctx, jid, msg)
-		return err
+		return SendMessageForUserAccount(ctx, userID, accountID, jid, msg)
 	}
 
 	uploaded, err := c.Upload(ctx, mediaBytes, whatsmeow.MediaDocument)
@@ -441,8 +499,32 @@ func SendMediaForUserAccount(ctx context.Context, userID, accountID string, jid 
 			FileLength:    proto.Uint64(uploaded.FileLength),
 		},
 	}
-	_, err = c.SendMessage(ctx, jid, msg)
-	return err
+	return SendMessageForUserAccount(ctx, userID, accountID, jid, msg)
+}
+
+func connectionContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, 30*time.Second)
+}
+
+func isRetryableSendError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if errors.Is(err, whatsmeow.ErrNotConnected) || errors.Is(err, whatsmeow.ErrMessageTimedOut) {
+		return true
+	}
+	var disconnectedErr *whatsmeow.DisconnectedError
+	if errors.As(err, &disconnectedErr) {
+		return true
+	}
+	var networkErr net.Error
+	return errors.As(err, &networkErr)
 }
 
 func IsOnWhatsApp(numbers []string) ([]types.IsOnWhatsAppResponse, error) {
