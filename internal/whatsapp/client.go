@@ -146,6 +146,39 @@ func ListAccountsForUser(userID string) []AccountInfo {
 	return mgr.ListAccounts()
 }
 
+type ConnectionStats struct {
+	TotalAccounts     int `json:"total_accounts"`
+	LoggedInAccounts  int `json:"logged_in_accounts"`
+	ConnectedAccounts int `json:"connected_accounts"`
+	ProblemAccounts   int `json:"problem_accounts"`
+}
+
+func GetConnectionStats() ConnectionStats {
+	managerLock.RLock()
+	managerList := make([]*Manager, 0, len(managers))
+	for _, mgr := range managers {
+		if mgr != nil {
+			managerList = append(managerList, mgr)
+		}
+	}
+	managerLock.RUnlock()
+
+	var stats ConnectionStats
+	for _, mgr := range managerList {
+		for _, account := range mgr.ListAccounts() {
+			stats.TotalAccounts++
+			if account.LoggedIn {
+				stats.LoggedInAccounts++
+			}
+			if account.Connected && account.LoggedIn {
+				stats.ConnectedAccounts++
+			}
+		}
+	}
+	stats.ProblemAccounts = stats.LoggedInAccounts - stats.ConnectedAccounts
+	return stats
+}
+
 func CreateAccount(name string) (AccountInfo, error) {
 	return CreateAccountForUser("", name)
 }

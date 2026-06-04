@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Login - InstaBlast Pro</title>
   <link rel="icon" href="/icon.ico" sizes="any" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-soft: #edf8f0;
@@ -18,9 +17,9 @@
       --accent-3: #0f766e;
       --danger: #dc2626;
       --success: #16a34a;
-      --shadow: 0 28px 70px rgba(15, 23, 42, 0.12);
-      --radius: 26px;
-      --radius-sm: 16px;
+      --shadow: 0 16px 45px rgba(15, 23, 42, 0.10);
+      --radius: 18px;
+      --radius-sm: 10px;
       --transition: all 0.2s ease;
     }
 
@@ -32,7 +31,7 @@
     body {
       min-height: 100%;
       margin: 0;
-      font-family: 'Inter', sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: var(--text);
       background:
         radial-gradient(circle at top left, rgba(34, 197, 94, 0.14), transparent 28%),
@@ -49,26 +48,27 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 18px 24px;
-      background: linear-gradient(90deg, #047857 0%, #10b981 55%, #22c55e 100%);
-      box-shadow: 0 10px 28px rgba(16, 185, 129, 0.18);
+      min-height: 58px;
+      padding: 9px 20px;
+      background: #0f9f67;
+      box-shadow: none;
     }
 
     .topbar-brand {
       display: inline-flex;
       align-items: center;
-      gap: 12px;
+      gap: 9px;
       min-width: 0;
     }
 
     .topbar-logo {
-      width: 42px;
-      height: 42px;
-      border-radius: 14px;
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
       overflow: hidden;
       background: rgba(255, 255, 255, 0.14);
       border: 1px solid rgba(255, 255, 255, 0.18);
-      flex: 0 0 42px;
+      flex: 0 0 34px;
     }
 
     .topbar-logo img {
@@ -81,23 +81,13 @@
     .topbar-copy strong {
       display: block;
       color: #ffffff;
-      font-size: 24px;
+      font-size: 17px;
       line-height: 1;
-      letter-spacing: -0.04em;
+      letter-spacing: -0.02em;
     }
 
     .topbar-copy span {
-      display: inline-block;
-      margin-top: 6px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.18);
-      color: #ffffff;
-      font-size: 13px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      border: 1px solid rgba(255, 255, 255, 0.14);
+      display: none;
     }
 
     .login-shell {
@@ -105,17 +95,17 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 40px 20px;
+      padding: 28px 16px;
     }
 
     .login-card {
-      width: min(620px, 100%);
-      padding: 28px;
+      width: min(460px, 100%);
+      padding: 22px;
       border-radius: var(--radius);
       background: var(--card);
       border: 1px solid var(--border);
       box-shadow: var(--shadow);
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(8px);
     }
 
     .card-badge {
@@ -133,46 +123,46 @@
     }
 
     .login-title {
-      margin: 18px 0 8px;
-      font-size: 38px;
-      line-height: 1;
-      letter-spacing: -0.06em;
+      margin: 0 0 18px;
+      font-size: 24px;
+      line-height: 1.2;
+      letter-spacing: -0.03em;
     }
 
     .login-subtitle {
-      margin: 0 0 24px;
+      margin: -10px 0 18px;
       color: var(--muted);
-      font-size: 16px;
-      line-height: 1.7;
+      font-size: 13px;
+      line-height: 1.5;
     }
 
     .auth-switch {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 20px;
-      padding: 6px;
-      border-radius: 18px;
+      gap: 4px;
+      margin-bottom: 18px;
+      padding: 4px;
+      border-radius: 12px;
       background: rgba(16, 24, 40, 0.05);
     }
 
     .auth-tab {
       border: none;
-      border-radius: 14px;
-      padding: 12px 14px;
+      border-radius: 9px;
+      padding: 9px 12px;
       background: transparent;
       color: #344054;
       font: inherit;
-      font-size: 15px;
-      font-weight: 800;
+      font-size: 13px;
+      font-weight: 700;
       cursor: pointer;
       transition: var(--transition);
     }
 
     .auth-tab.active {
       color: #ffffff;
-      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 52%, var(--accent-3) 100%);
-      box-shadow: 0 12px 24px rgba(16, 185, 129, 0.18);
+      background: var(--accent);
+      box-shadow: none;
     }
 
     .panel {
@@ -184,41 +174,41 @@
     }
 
     .form-shell {
-      padding: 20px;
-      border-radius: 22px;
-      background: linear-gradient(180deg, #ffffff 0%, #f8fffb 100%);
-      border: 1px solid rgba(16, 24, 40, 0.06);
+      padding: 0;
+      border-radius: 0;
+      background: transparent;
+      border: 0;
     }
 
     .form-title {
-      margin: 0 0 6px;
-      font-size: 24px;
-      font-weight: 800;
+      margin: 0 0 5px;
+      font-size: 17px;
+      font-weight: 700;
       letter-spacing: -0.04em;
     }
 
     .form-copy {
-      margin: 0 0 18px;
+      margin: 0 0 14px;
       color: var(--muted);
-      font-size: 14px;
-      line-height: 1.7;
+      font-size: 12px;
+      line-height: 1.5;
     }
 
     .trial-copy {
-      margin: 0 0 18px;
-      padding: 14px 15px;
-      border-radius: 16px;
+      margin: 0 0 14px;
+      padding: 10px 12px;
+      border-radius: 10px;
       background: rgba(22, 163, 74, 0.08);
       color: #166534;
-      font-size: 14px;
-      line-height: 1.7;
+      font-size: 12px;
+      line-height: 1.5;
     }
 
     .otp-box {
       display: none;
-      margin-top: 18px;
-      padding: 18px;
-      border-radius: 18px;
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: 12px;
       background: rgba(15, 118, 110, 0.06);
       border: 1px solid rgba(15, 118, 110, 0.12);
     }
@@ -230,8 +220,8 @@
     .otp-note {
       margin: 0 0 14px;
       color: #0f766e;
-      font-size: 14px;
-      line-height: 1.7;
+      font-size: 12px;
+      line-height: 1.5;
     }
 
     .btn-row-inline {
@@ -248,33 +238,33 @@
     }
 
     .form-group + .form-group {
-      margin-top: 16px;
+      margin-top: 12px;
     }
 
     label {
       display: block;
-      margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: 800;
+      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: 700;
     }
 
     input {
       width: 100%;
-      padding: 15px 16px;
+      padding: 11px 12px;
       border: 1px solid rgba(16, 24, 40, 0.1);
       border-radius: var(--radius-sm);
       font: inherit;
-      font-size: 16px;
+      font-size: 13px;
       color: var(--text);
       background: #ffffff;
       outline: none;
       transition: var(--transition);
-      box-shadow: 0 8px 20px rgba(148, 163, 184, 0.06);
+      box-shadow: none;
     }
 
     input:focus {
       border-color: rgba(16, 185, 129, 0.48);
-      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.12);
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.10);
     }
 
     input::placeholder {
@@ -286,28 +276,28 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 10px;
+      gap: 8px;
       border: none;
       border-radius: var(--radius-sm);
-      padding: 13px 16px;
+      padding: 10px 14px;
       font: inherit;
-      font-size: 16px;
-      font-weight: 800;
+      font-size: 13px;
+      font-weight: 700;
       text-decoration: none;
       cursor: pointer;
       transition: var(--transition);
     }
 
     .btn-primary {
-      margin-top: 20px;
+      margin-top: 16px;
       color: #ffffff;
-      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 52%, var(--accent-3) 100%);
-      box-shadow: 0 16px 30px rgba(16, 185, 129, 0.24);
+      background: var(--accent);
+      box-shadow: none;
     }
 
     .btn-primary:hover {
       transform: translateY(-1px);
-      box-shadow: 0 20px 34px rgba(16, 185, 129, 0.28);
+      box-shadow: none;
     }
 
     .btn-primary:disabled {
@@ -317,23 +307,24 @@
     }
 
     .btn-whatsapp {
-      margin-top: 14px;
-      color: #0f5132;
-      background: rgba(37, 211, 102, 0.12);
-      border: 1px solid rgba(37, 211, 102, 0.22);
+      width: auto;
+      margin: 16px auto 0;
+      padding: 8px 12px;
+      color: #16734a;
+      background: transparent;
+      border: 0;
     }
 
     .btn-whatsapp:hover {
-      background: rgba(37, 211, 102, 0.18);
-      transform: translateY(-1px);
+      background: rgba(37, 211, 102, 0.08);
     }
 
     .btn-icon {
-      width: 18px;
-      height: 18px;
+      width: 16px;
+      height: 16px;
       display: inline-flex;
       color: currentColor;
-      flex: 0 0 18px;
+      flex: 0 0 16px;
     }
 
     .btn-icon svg {
@@ -343,9 +334,9 @@
     }
 
     .status {
-      min-height: 22px;
-      margin-top: 14px;
-      font-size: 16px;
+      min-height: 18px;
+      margin-top: 10px;
+      font-size: 12px;
       font-weight: 700;
     }
 
@@ -369,42 +360,44 @@
     }
 
     .login-footnote {
-      margin-top: 16px;
+      display: none;
+      margin-top: 10px;
       color: #667085;
-      font-size: 15px;
-      line-height: 1.7;
+      font-size: 12px;
+      line-height: 1.5;
       text-align: center;
     }
 
     @media (max-width: 640px) {
       .login-topbar {
-        padding: 16px;
+        min-height: 54px;
+        padding: 8px 14px;
       }
 
       .topbar-copy strong {
-        font-size: 24px;
+        font-size: 16px;
       }
 
       .login-shell {
-        padding: 20px 16px;
+        align-items: flex-start;
+        padding: 18px 12px;
       }
 
       .login-card {
-        padding: 24px 18px;
-        border-radius: 22px;
+        padding: 18px;
+        border-radius: 16px;
       }
 
       .login-title {
-        font-size: 32px;
+        font-size: 22px;
       }
 
       .form-shell {
-        padding: 20px;
-        border-radius: 18px;
+        padding: 0;
       }
 
       .form-title {
-        font-size: 22px;
+        font-size: 16px;
       }
 
       .login-subtitle,
@@ -416,7 +409,7 @@
       .login-footnote,
       .card-badge,
       .auth-tab {
-        font-size: 15px;
+        font-size: 13px;
       }
     }
   </style>
@@ -436,9 +429,7 @@
 
   <main class="login-shell">
     <section class="login-card">
-      <div class="card-badge">Akses Dashboard</div>
-      <h1 class="login-title">Masuk atau daftar trial</h1>
-      <p class="login-subtitle">Gunakan akun yang sudah ada, atau klik tombol daftar untuk membuat akun trial 3 hari dengan AI aktif.</p>
+      <h1 class="login-title">Masuk ke InstaBlast</h1>
 
       <div class="auth-switch">
         <button class="auth-tab active" type="button" data-mode="login">Login</button>
@@ -447,9 +438,6 @@
 
       <div class="panel active" id="loginPanel">
         <div class="form-shell">
-          <h2 class="form-title">Login</h2>
-          <p class="form-copy">Masukkan email dan password untuk masuk ke panel InstaBlast Pro.</p>
-
           <form id="loginForm">
             <div class="form-group">
               <label for="email">Email</label>
@@ -468,8 +456,8 @@
 
       <div class="panel" id="trialPanel">
         <div class="form-shell">
-          <h2 class="form-title">Daftar Trial 3 Hari</h2>
-          <p class="trial-copy">Masukkan email, password, dan nomor WhatsApp aktif. Sistem akan mengirim OTP 5 menit ke WhatsApp Anda sebelum akun trial dibuat.</p>
+          <h2 class="form-title">Daftar Trial</h2>
+          <p class="trial-copy">Isi data berikut. Kode OTP akan dikirim ke WhatsApp Anda.</p>
 
           <form id="trialForm">
             <div class="form-group">
@@ -521,9 +509,6 @@
         WhatsApp Admin
       </a>
 
-      <div class="login-footnote">
-        Jika ada kendala login atau trial, tombol WhatsApp Admin akan membuka chat langsung ke admin.
-      </div>
     </section>
   </main>
 

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"os"
@@ -78,6 +79,7 @@ func initApp() {
 	TenantManager = tenantpkg.NewManager(Store, filepath.Join(config.PathStorages, "tenants"), func(msg, level string) {
 		broadcastWSLog(msg, level)
 	})
+	go TenantManager.StartActiveUsers(context.Background())
 
 	fmt.Printf("InstaBlast Pro v%s starting...\n", config.AppVersion)
 }

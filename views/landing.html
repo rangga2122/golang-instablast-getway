@@ -6,7 +6,6 @@
   <title>InstaBlast Pro - WhatsApp Blast, AI, dan Multi Account</title>
   <meta name="description" content="InstaBlast Pro membantu bisnis mengelola WhatsApp blast, auto reply AI, kontak, media, laporan, dan multi account dalam satu dashboard." />
   <link rel="icon" href="/icon.ico" sizes="any" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     :root {
       --green: #12b76a;
@@ -969,6 +968,598 @@
 
       .trial-banner .price {
         font-size: 44px;
+      }
+    }
+
+    /* ===== Simple Elegant Landing V2 ===== */
+    :root {
+      --green: #16a867;
+      --green-dark: #087647;
+      --green-soft: #edf9f3;
+      --teal: #168f78;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #e5e9ee;
+      --shadow: 0 12px 34px rgba(16, 24, 40, 0.07);
+      --radius: 18px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background:
+        radial-gradient(circle at 85% 8%, rgba(22, 168, 103, 0.08), transparent 24%),
+        #ffffff;
+      color: var(--ink);
+      font-size: 14px;
+    }
+
+    .container {
+      width: min(1120px, calc(100% - 36px));
+    }
+
+    .nav {
+      background: rgba(255, 255, 255, 0.95);
+      border-bottom-color: var(--line);
+      box-shadow: none;
+    }
+
+    .nav-inner {
+      height: 64px;
+    }
+
+    .brand {
+      gap: 9px;
+    }
+
+    .brand-logo {
+      width: 34px;
+      height: 34px;
+      flex-basis: 34px;
+      border: 1px solid #b8e5ce;
+      border-radius: 9px;
+    }
+
+    .brand-title {
+      font-size: 17px;
+      font-weight: 750;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-sub {
+      display: none;
+    }
+
+    .nav-links {
+      gap: 20px;
+      color: #475467;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .nav-actions {
+      gap: 8px;
+    }
+
+    .btn {
+      min-height: 40px;
+      padding: 9px 15px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      box-shadow: none;
+    }
+
+    .btn-primary,
+    .btn-checkout {
+      background: var(--green);
+      box-shadow: none;
+    }
+
+    .btn-primary:hover,
+    .btn-checkout:hover {
+      background: var(--green-dark);
+      box-shadow: none;
+    }
+
+    .btn-light {
+      box-shadow: none;
+    }
+
+    .hero {
+      padding: 74px 0 34px;
+    }
+
+    .hero-grid {
+      grid-template-columns: 1fr;
+      gap: 52px;
+    }
+
+    .hero-grid > div:first-child {
+      max-width: 760px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .eyebrow {
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 750;
+      letter-spacing: 0.1em;
+    }
+
+    .hero h1 {
+      max-width: 760px;
+      margin: 16px auto 14px;
+      font-size: clamp(36px, 5vw, 58px);
+      line-height: 1.06;
+      letter-spacing: -0.045em;
+      font-weight: 780;
+      color: var(--ink);
+    }
+
+    .hero p {
+      max-width: 660px;
+      margin: 0 auto;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.65;
+      font-weight: 400;
+    }
+
+    .hero-actions {
+      justify-content: center;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    .hero-badges {
+      max-width: 720px;
+      margin: 30px auto 0;
+      gap: 10px;
+    }
+
+    .mini-badge {
+      padding: 14px;
+      border-radius: 12px;
+      box-shadow: none;
+      font-size: 12px;
+      font-weight: 700;
+      text-align: left;
+    }
+
+    .mini-badge span {
+      margin-top: 3px;
+      font-size: 11px;
+      font-weight: 400;
+    }
+
+    .hero-pricing-stack {
+      max-width: none;
+      justify-self: stretch;
+      gap: 12px;
+    }
+
+    .hero-pricing-stack::before {
+      content: "Pilih paket";
+      display: block;
+      color: var(--ink);
+      font-size: 24px;
+      font-weight: 750;
+      letter-spacing: -0.03em;
+      text-align: center;
+    }
+
+    .offer-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-areas: "starter featured team trial";
+      gap: 12px;
+    }
+
+    .offer-card,
+    .offer-card.featured,
+    .offer-card.trial-card {
+      position: relative;
+      overflow: hidden;
+      min-height: 100%;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      outline: 0;
+      background: #ffffff;
+      color: var(--ink);
+      box-shadow: 0 12px 28px rgba(16, 24, 40, 0.07);
+    }
+
+    .offer-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 5px;
+      background: var(--plan-color, var(--green));
+    }
+
+    .starter-card {
+      --plan-color: #3182f6;
+      --plan-soft: #edf5ff;
+      --plan-dark: #1769d2;
+      border-color: #cfe1fb;
+      background: linear-gradient(180deg, #f7fbff 0%, #ffffff 42%);
+    }
+
+    .offer-card.featured {
+      --plan-color: #16a867;
+      --plan-soft: #e9f8f0;
+      --plan-dark: #087647;
+      border: 2px solid #78cfa3;
+      background: linear-gradient(180deg, #ecf9f2 0%, #ffffff 46%);
+      box-shadow: 0 18px 40px rgba(22, 168, 103, 0.15);
+    }
+
+    .team-card {
+      --plan-color: #7c5ce5;
+      --plan-soft: #f2efff;
+      --plan-dark: #6243c4;
+      border-color: #ddd5fa;
+      background: linear-gradient(180deg, #f8f6ff 0%, #ffffff 42%);
+    }
+
+    .offer-card.trial-card {
+      --plan-color: #e59a24;
+      --plan-soft: #fff6e6;
+      --plan-dark: #b86b05;
+      border: 1px solid #f0d39f;
+      background: linear-gradient(180deg, #fff9ed 0%, #ffffff 42%);
+    }
+
+    .offer-chip,
+    .offer-card.featured .offer-chip {
+      align-self: flex-start;
+      padding: 6px 9px;
+      border-radius: 7px;
+      background: var(--plan-soft, var(--green-soft));
+      color: var(--plan-dark, var(--green-dark));
+      font-size: 10px;
+      font-weight: 750;
+      letter-spacing: 0.08em;
+    }
+
+    .offer-price,
+    .starter-card .offer-price,
+    .team-card .offer-price,
+    .trial-card .offer-price {
+      margin: 17px 0 6px;
+      color: var(--plan-dark, var(--ink));
+      font-size: 31px;
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+      font-weight: 800;
+    }
+
+    .offer-price small,
+    .starter-card .offer-price small,
+    .team-card .offer-price small,
+    .trial-card .offer-price small,
+    .offer-card.featured .offer-price small {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .offer-title,
+    .starter-card .offer-title,
+    .team-card .offer-title,
+    .trial-card .offer-title {
+      margin-bottom: 9px;
+      color: var(--ink);
+      font-size: 17px;
+      font-weight: 750;
+    }
+
+    .offer-copy,
+    .starter-card .offer-copy,
+    .team-card .offer-copy,
+    .trial-card .offer-copy {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+      font-weight: 450;
+    }
+
+    .offer-actions {
+      margin-top: auto;
+      padding-top: 18px;
+    }
+
+    .offer-card .offer-link {
+      min-height: 43px;
+      border-color: var(--plan-color);
+      background: var(--plan-color);
+      color: #ffffff;
+    }
+
+    .offer-card .offer-link:hover {
+      border-color: var(--plan-dark);
+      background: var(--plan-dark);
+    }
+
+    .trial-card .offer-link {
+      border-color: var(--plan-color);
+      background: var(--plan-soft);
+      color: var(--plan-dark);
+    }
+
+    .offer-points {
+      gap: 8px;
+      margin-top: 15px;
+    }
+
+    .offer-point {
+      gap: 8px;
+      color: #475467;
+      font-size: 11px;
+      line-height: 1.5;
+      font-weight: 550;
+    }
+
+    .offer-check,
+    .offer-card.featured .offer-check {
+      width: 18px;
+      height: 18px;
+      flex-basis: 18px;
+      background: var(--plan-color, var(--green));
+      font-size: 10px;
+    }
+
+    .section {
+      padding: 50px 0;
+    }
+
+    .section:nth-of-type(even) {
+      background: #f8faf9;
+      border-block: 1px solid #f0f2f3;
+    }
+
+    .section-head {
+      max-width: 620px;
+      margin: 0 auto 26px;
+      text-align: center;
+    }
+
+    .section-title,
+    .pricing-info h2 {
+      margin-bottom: 8px;
+      color: var(--ink);
+      font-size: clamp(26px, 3vw, 34px);
+      line-height: 1.15;
+      letter-spacing: -0.035em;
+      font-weight: 760;
+    }
+
+    .section-copy,
+    .pricing-info p {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.65;
+      font-weight: 400;
+    }
+
+    .feature-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .feature-card {
+      min-height: 190px;
+      padding: 18px;
+      border-radius: 14px;
+      box-shadow: none;
+    }
+
+    .feature-icon {
+      width: 34px;
+      height: 34px;
+      margin-bottom: 13px;
+      border-radius: 9px;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .feature-card h3,
+    .faq-card h3,
+    .step-card h3 {
+      margin-bottom: 6px;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 750;
+      letter-spacing: -0.01em;
+    }
+
+    .feature-card p,
+    .faq-card p,
+    .step-card p {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.6;
+      font-weight: 400;
+    }
+
+    .workflow {
+      gap: 12px;
+    }
+
+    .step-card {
+      padding: 18px;
+      border-radius: 14px;
+      box-shadow: none;
+    }
+
+    .step-card::before {
+      width: 30px;
+      height: 30px;
+      margin-bottom: 12px;
+      border-radius: 8px;
+      background: var(--green);
+      font-size: 11px;
+    }
+
+    .pricing-wrap {
+      grid-template-columns: 0.8fr 1.2fr;
+      gap: 14px;
+    }
+
+    .pricing-info,
+    .faq-card {
+      padding: 22px;
+      border-radius: 16px;
+      box-shadow: none;
+    }
+
+    .pricing-info .hero-actions {
+      justify-content: flex-start;
+    }
+
+    .faq-grid {
+      gap: 12px;
+    }
+
+    .cta {
+      margin: 42px auto 52px;
+      padding: 28px;
+      border-radius: 18px;
+      background: var(--ink);
+      box-shadow: none;
+    }
+
+    .cta h2 {
+      font-size: 26px;
+      font-weight: 750;
+    }
+
+    .cta p {
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    .cta .hero-actions {
+      margin-top: 0;
+    }
+
+    .footer {
+      padding: 22px 0;
+      font-size: 11px;
+      font-weight: 400;
+    }
+
+    @media (max-width: 1040px) {
+      .offer-grid,
+      .feature-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .offer-grid {
+        grid-template-areas:
+          "featured featured"
+          "starter team"
+          "trial trial";
+      }
+    }
+
+    @media (max-width: 720px) {
+      .container {
+        width: min(100% - 24px, 1120px);
+      }
+
+      .nav-inner {
+        min-height: 58px;
+        height: 58px;
+        padding: 0;
+        flex-direction: row;
+        align-items: center;
+      }
+
+      .nav-actions {
+        width: auto;
+      }
+
+      .nav-actions .btn-light {
+        display: none;
+      }
+
+      .nav-actions .btn {
+        min-height: 36px;
+        padding: 8px 11px;
+        font-size: 11px;
+      }
+
+      .hero {
+        padding: 48px 0 26px;
+      }
+
+      .hero-grid {
+        gap: 36px;
+      }
+
+      .hero h1 {
+        font-size: 34px;
+      }
+
+      .hero p {
+        font-size: 13px;
+      }
+
+      .hero-badges,
+      .offer-grid,
+      .feature-grid,
+      .workflow,
+      .faq-grid,
+      .pricing-wrap {
+        grid-template-columns: 1fr;
+      }
+
+      .offer-grid {
+        grid-template-areas:
+          "featured"
+          "starter"
+          "team"
+          "trial";
+      }
+
+      .hero-badges {
+        gap: 8px;
+      }
+
+      .offer-card,
+      .offer-card.featured,
+      .offer-card.trial-card,
+      .feature-card,
+      .step-card,
+      .pricing-info,
+      .faq-card {
+        padding: 16px;
+      }
+
+      .feature-card {
+        min-height: 0;
+      }
+
+      .section {
+        padding: 38px 0;
+      }
+
+      .section-head {
+        text-align: left;
+      }
+
+      .cta {
+        margin: 30px 12px 38px;
+        padding: 22px;
+      }
+
+      .cta .hero-actions {
+        width: 100%;
       }
     }
   </style>

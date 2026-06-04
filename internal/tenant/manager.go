@@ -48,6 +48,38 @@ func NewManager(systemStore *storage.Storage, baseDir string, logFn func(string,
 	}
 }
 
+func (m *Manager) StartActiveUsers(ctx context.Context) {
+	users, err := m.systemStore.ListUsers()
+	if err != nil {
+		if m.logFn != nil {
+			m.logFn(fmt.Sprintf("Gagal memuat user untuk auto-start WhatsApp: %v", err), "error")
+		}
+		return
+	}
+
+	now := time.Now()
+	for _, user := range users {
+		if !userEligibleForBackgroundStart(user, now) {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		if _, err := m.Get(user); err != nil && m.logFn != nil {
+			m.logFn(fmt.Sprintf("Gagal auto-start WhatsApp untuk %s: %v", user.Email, err), "warning")
+		}
+	}
+}
+
+func userEligibleForBackgroundStart(user storage.AppUser, now time.Time) bool {
+	if !user.IsActive {
+		return false
+	}
+	return user.ExpiresAt.IsZero() || !now.After(user.ExpiresAt)
+}
+
 func (m *Manager) Get(user storage.AppUser) (*Tenant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
