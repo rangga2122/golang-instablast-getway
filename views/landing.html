@@ -1562,6 +1562,233 @@
         width: 100%;
       }
     }
+
+    /* ===== Landing readability override ===== */
+    :root {
+      --ink: #000000;
+      --muted: #000000;
+    }
+
+    body {
+      color: #000000;
+      font-size: 17px;
+      line-height: 1.7;
+    }
+
+    .nav-links,
+    .brand-title,
+    .brand-sub,
+    .eyebrow,
+    .hero h1,
+    .hero p,
+    .mini-badge,
+    .mini-badge span,
+    .hero-pricing-stack::before,
+    .offer-chip,
+    .offer-price,
+    .offer-price small,
+    .offer-title,
+    .offer-copy,
+    .offer-point,
+    .section-title,
+    .section-copy,
+    .pricing-info h2,
+    .pricing-info p,
+    .feature-card h3,
+    .feature-card p,
+    .faq-card h3,
+    .faq-card p,
+    .step-card h3,
+    .step-card p,
+    .cta h2,
+    .cta p,
+    .footer,
+    .footer a {
+      color: #000000 !important;
+    }
+
+    .brand-title {
+      font-size: 20px;
+    }
+
+    .nav-links {
+      font-size: 15px;
+      font-weight: 750;
+    }
+
+    .btn {
+      font-size: 15px;
+    }
+
+    .hero h1 {
+      font-size: clamp(42px, 5.4vw, 64px);
+      line-height: 1.04;
+    }
+
+    .hero p {
+      max-width: 720px;
+      font-size: 19px;
+      font-weight: 500;
+    }
+
+    .eyebrow {
+      font-size: 12px;
+    }
+
+    .mini-badge {
+      font-size: 15px;
+    }
+
+    .mini-badge span {
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .hero-pricing-stack::before {
+      font-size: 29px;
+      font-weight: 850;
+    }
+
+    .offer-chip {
+      font-size: 12px;
+    }
+
+    .offer-price,
+    .starter-card .offer-price,
+    .team-card .offer-price,
+    .trial-card .offer-price {
+      font-size: 38px;
+      font-weight: 900;
+    }
+
+    .offer-price small,
+    .starter-card .offer-price small,
+    .team-card .offer-price small,
+    .trial-card .offer-price small,
+    .offer-card.featured .offer-price small {
+      font-size: 15px;
+      font-weight: 750;
+    }
+
+    .offer-title,
+    .starter-card .offer-title,
+    .team-card .offer-title,
+    .trial-card .offer-title {
+      font-size: 21px;
+      font-weight: 850;
+    }
+
+    .offer-copy,
+    .starter-card .offer-copy,
+    .team-card .offer-copy,
+    .trial-card .offer-copy {
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    .offer-point {
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    .section-title,
+    .pricing-info h2 {
+      font-size: clamp(34px, 3.4vw, 42px);
+      font-weight: 850;
+    }
+
+    .section-copy,
+    .pricing-info p {
+      font-size: 17px;
+      font-weight: 500;
+    }
+
+    .feature-card h3,
+    .faq-card h3,
+    .step-card h3 {
+      font-size: 19px;
+      font-weight: 850;
+    }
+
+    .feature-card p,
+    .faq-card p,
+    .step-card p {
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    .cta {
+      background: #ffffff;
+      border: 1px solid var(--line);
+    }
+
+    .cta h2 {
+      font-size: 31px;
+      font-weight: 850;
+    }
+
+    .cta p {
+      font-size: 17px;
+      font-weight: 500;
+    }
+
+    .footer {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .btn-primary,
+    .btn-checkout,
+    .offer-card .offer-link {
+      color: #ffffff !important;
+    }
+
+    .btn-light,
+    .btn-wa,
+    .trial-card .offer-link {
+      color: #000000 !important;
+    }
+
+    @media (max-width: 720px) {
+      body {
+        font-size: 16px;
+      }
+
+      .nav-actions .btn {
+        font-size: 13px;
+      }
+
+      .hero h1 {
+        font-size: 39px;
+      }
+
+      .hero p {
+        font-size: 16px;
+      }
+
+      .hero-pricing-stack::before {
+        font-size: 26px;
+      }
+
+      .offer-price,
+      .starter-card .offer-price,
+      .team-card .offer-price,
+      .trial-card .offer-price {
+        font-size: 34px;
+      }
+
+      .offer-copy,
+      .feature-card p,
+      .faq-card p,
+      .step-card p {
+        font-size: 15px;
+      }
+
+      .section-title,
+      .pricing-info h2 {
+        font-size: 31px;
+      }
+    }
   </style>
 </head>
 <body>
