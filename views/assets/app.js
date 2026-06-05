@@ -1466,7 +1466,7 @@ async function requestQR(accountID = activeWAAccountId) {
   showToast('Meminta QR Code...', 'info');
 
   try {
-    const data = await api(appendAccountQuery('/qr', targetAccountID));
+    const data = await api(appendAccountQuery('/qr?fresh=1', targetAccountID));
     if (data.account_id && data.account_id !== activeWAAccountId) {
       activeWAAccountId = data.account_id;
       await loadAccounts();
@@ -4262,7 +4262,7 @@ async function requestAdminTrialOTPQR() {
   if (!currentUser?.is_admin) return;
   try {
     setAdminTrialOTPText('adminTrialOTPDeviceStatus', 'Meminta QR verifier OTP...', '#f59e0b');
-    const data = await api('/admin/trial-otp/qr');
+    const data = await api('/admin/trial-otp/qr?fresh=1');
     renderAdminTrialOTPAccount(data || {});
     if (data.status === 'already_logged_in' || data.connected) {
       setAdminTrialOTPText('adminTrialOTPDeviceStatus', 'Verifier OTP sudah login dan online.', '#22c55e');

@@ -1120,6 +1120,19 @@ func runServer(cmd_ *cobra.Command, args []string) {
 				"connected": whatsapp.IsClientConnectedForAccountForUser(trialOTPSystemUserID, account.ID),
 			})
 		}
+		if strings.EqualFold(c.Query("fresh"), "1") || strings.EqualFold(c.Query("fresh"), "true") {
+			resetCtx, resetCancel := context.WithTimeout(context.Background(), 25*time.Second)
+			resetAccount, resetErr := whatsapp.ResetForPairingForUser(resetCtx, trialOTPSystemUserID, account.ID)
+			resetCancel()
+			if resetErr != nil {
+				return c.Status(500).JSON(fiber.Map{"error": resetErr.Error()})
+			}
+			account = resetAccount
+			client = whatsapp.GetClientByAccountForUser(trialOTPSystemUserID, account.ID)
+			if client == nil {
+				return c.Status(404).JSON(fiber.Map{"error": "Akun verifier OTP tidak ditemukan setelah reset QR"})
+			}
+		}
 		qrCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		if client.IsConnected() && !client.IsLoggedIn() {
@@ -1583,6 +1596,18 @@ func runServer(cmd_ *cobra.Command, args []string) {
 				"jid":        whatsapp.GetClientJIDForAccountForUser(user.ID, accountID),
 				"account_id": accountID,
 			})
+		}
+		if strings.EqualFold(c.Query("fresh"), "1") || strings.EqualFold(c.Query("fresh"), "true") {
+			resetCtx, resetCancel := context.WithTimeout(context.Background(), 25*time.Second)
+			_, resetErr := whatsapp.ResetForPairingForUser(resetCtx, user.ID, accountID)
+			resetCancel()
+			if resetErr != nil {
+				return c.Status(500).JSON(fiber.Map{"error": resetErr.Error()})
+			}
+			client = whatsapp.GetClientByAccountForUser(user.ID, accountID)
+			if client == nil {
+				return c.Status(404).JSON(fiber.Map{"error": "Account not found after QR reset"})
+			}
 		}
 
 		qrCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

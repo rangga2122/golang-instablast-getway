@@ -12,6 +12,7 @@ import (
 	"github.com/azkazamdigital/wa-gateway/config"
 	"github.com/sirupsen/logrus"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
@@ -94,6 +95,7 @@ type Manager struct {
 }
 
 func NewManager(ctx context.Context, container *sqlstore.Container, prefs PreferenceStore, eventHandler SessionEventHandler) (*Manager, error) {
+	configureClientIdentity()
 	m := &Manager{
 		container:    container,
 		prefs:        prefs,
@@ -107,6 +109,11 @@ func NewManager(ctx context.Context, container *sqlstore.Container, prefs Prefer
 	m.supervisorCancel = cancel
 	go m.connectionSupervisor(supervisorCtx)
 	return m, nil
+}
+
+func configureClientIdentity() {
+	store.SetOSInfo("Chrome", [3]uint32{143, 0, 0})
+	store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_CHROME.Enum()
 }
 
 func (m *Manager) loadSessions(ctx context.Context) error {
@@ -547,6 +554,47 @@ func (m *Manager) Logout(ctx context.Context, accountID string) error {
 	m.saveStateLocked()
 	m.mu.Unlock()
 	return nil
+}
+
+func (m *Manager) ResetForPairing(ctx context.Context, accountID string) (AccountInfo, error) {
+	session := m.getSession(accountID)
+	if session == nil || session.client == nil {
+		return AccountInfo{}, fmt.Errorf("account not found")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if m.container == nil {
+		return AccountInfo{}, fmt.Errorf("container not initialized")
+	}
+
+	session.connectMu.Lock()
+	defer session.connectMu.Unlock()
+
+	if session.client.IsConnected() {
+		session.client.Disconnect()
+	}
+	if session.device != nil && session.device.ID != nil {
+		if err := session.device.Delete(ctx); err != nil {
+			return AccountInfo{}, err
+		}
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session.meta.JID = ""
+	session.device = m.container.NewDevice()
+	session.healthy = false
+	session.unhealthySince = time.Time{}
+	session.nextReconnectAt = time.Time{}
+	session.consecutiveReconnectFail = 0
+	session.autoReconnectBlocked = false
+	session.autoReconnectBlockedTill = time.Time{}
+	session.supervisorReconnectRun = false
+	session.lastConnectedAt = time.Time{}
+	session.client = m.newClient(session)
+	m.saveStateLocked()
+	return m.accountInfoLocked(session), nil
 }
 
 func (m *Manager) Reconnect(ctx context.Context, accountID string) error {

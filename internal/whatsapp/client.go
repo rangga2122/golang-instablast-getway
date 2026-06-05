@@ -374,6 +374,16 @@ func LogoutForAccountForUser(userID, accountID string) error {
 	return mgr.Logout(ctx, accountID)
 }
 
+func ResetForPairingForUser(ctx context.Context, userID, accountID string) (AccountInfo, error) {
+	mgr := GetManagerForUser(userID)
+	if mgr == nil {
+		return AccountInfo{}, fmt.Errorf("manager not initialized")
+	}
+	ctx, cancel := connectionContext(ctx)
+	defer cancel()
+	return mgr.ResetForPairing(ctx, accountID)
+}
+
 func SendText(ctx context.Context, jid types.JID, text string) error {
 	return SendTextForUserAccount(ctx, "", "", jid, text)
 }
