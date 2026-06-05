@@ -871,11 +871,18 @@ func compatLoginViaQR(c *fiber.Ctx, deviceID string) error {
 			"is_logged_in": true,
 		})
 	}
-	qrChan, err := client.GetQRChannel(c.UserContext())
+	qrCtx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
+	keepQRAlive := false
+	defer func() {
+		if !keepQRAlive {
+			cancel()
+		}
+	}()
+	qrChan, err := client.GetQRChannel(qrCtx)
 	if err != nil {
 		return compatAPIError(c, fiber.StatusBadRequest, "QR_FAILED", err.Error(), nil)
 	}
-	if err := client.Connect(); err != nil {
+	if err := client.ConnectContext(qrCtx); err != nil {
 		return compatAPIError(c, fiber.StatusBadRequest, "CONNECT_FAILED", err.Error(), nil)
 	}
 	for evt := range qrChan {
@@ -885,6 +892,8 @@ func compatLoginViaQR(c *fiber.Ctx, deviceID string) error {
 			if err != nil {
 				return compatAPIError(c, fiber.StatusInternalServerError, "QR_FAILED", "Failed to generate QR", nil)
 			}
+			// Keep the socket alive after sending the QR so WhatsApp can finish pairing.
+			keepQRAlive = true
 			return compatOK(c, "Login success", fiber.Map{
 				"device_id":   accountID,
 				"qr_link":     "data:image/png;base64," + base64.StdEncoding.EncodeToString(png),
@@ -897,6 +906,12 @@ func compatLoginViaQR(c *fiber.Ctx, deviceID string) error {
 				"is_logged_in": true,
 				"jid":          account.JID,
 			})
+		case "error":
+			msg := "QR pairing error"
+			if evt.Error != nil {
+				msg = evt.Error.Error()
+			}
+			return compatAPIError(c, fiber.StatusBadRequest, "QR_FAILED", msg, nil)
 		}
 	}
 	return compatAPIError(c, fiber.StatusRequestTimeout, "QR_TIMEOUT", "QR timeout", nil)

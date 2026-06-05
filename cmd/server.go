@@ -1133,8 +1133,13 @@ func runServer(cmd_ *cobra.Command, args []string) {
 				return c.Status(404).JSON(fiber.Map{"error": "Akun verifier OTP tidak ditemukan setelah reset QR"})
 			}
 		}
-		qrCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
+		qrCtx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
+		keepQRAlive := false
+		defer func() {
+			if !keepQRAlive {
+				cancel()
+			}
+		}()
 		if client.IsConnected() && !client.IsLoggedIn() {
 			client.Disconnect()
 		}
@@ -1159,6 +1164,8 @@ func runServer(cmd_ *cobra.Command, args []string) {
 					if err != nil {
 						return c.Status(500).JSON(fiber.Map{"error": "Failed to generate QR"})
 					}
+					// Keep the socket alive after sending the QR so WhatsApp can finish pairing.
+					keepQRAlive = true
 					return c.JSON(fiber.Map{
 						"status":    "qr",
 						"qr":        "data:image/png;base64," + base64.StdEncoding.EncodeToString(png),
@@ -1174,6 +1181,13 @@ func runServer(cmd_ *cobra.Command, args []string) {
 						"account":   updatedAccount,
 						"connected": true,
 					})
+				}
+				if evt.Event == whatsmeow.QRChannelEventError {
+					msg := "QR pairing error"
+					if evt.Error != nil {
+						msg = evt.Error.Error()
+					}
+					return c.Status(500).JSON(fiber.Map{"error": msg, "status": evt.Event, "account": account, "connected": false})
 				}
 			}
 		}
@@ -1610,8 +1624,13 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			}
 		}
 
-		qrCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
+		qrCtx, cancel := context.WithTimeout(context.Background(), 75*time.Second)
+		keepQRAlive := false
+		defer func() {
+			if !keepQRAlive {
+				cancel()
+			}
+		}()
 		if client.IsConnected() && !client.IsLoggedIn() {
 			client.Disconnect()
 		}
@@ -1637,6 +1656,8 @@ func runServer(cmd_ *cobra.Command, args []string) {
 					if err != nil {
 						return c.Status(500).JSON(fiber.Map{"error": "Failed to generate QR"})
 					}
+					// Keep the socket alive after sending the QR so WhatsApp can finish pairing.
+					keepQRAlive = true
 					return c.JSON(fiber.Map{
 						"status":     "qr",
 						"qr":         "data:image/png;base64," + base64.StdEncoding.EncodeToString(png),
@@ -1651,6 +1672,13 @@ func runServer(cmd_ *cobra.Command, args []string) {
 						"account_id": accountID,
 						"account":    account,
 					})
+				}
+				if evt.Event == whatsmeow.QRChannelEventError {
+					msg := "QR pairing error"
+					if evt.Error != nil {
+						msg = evt.Error.Error()
+					}
+					return c.Status(500).JSON(fiber.Map{"error": msg, "status": evt.Event, "account_id": accountID})
 				}
 			}
 		}
