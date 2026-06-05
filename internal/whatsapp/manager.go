@@ -521,16 +521,29 @@ func (m *Manager) Connect(ctx context.Context, accountID string) error {
 	defer session.connectMu.Unlock()
 
 	if session.client.IsConnected() {
+		if session.client.IsLoggedIn() {
+			m.setHealthy(accountID, true)
+		}
 		return nil
 	}
 	err := session.client.ConnectContext(ctx)
 	if errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+		if session.client.IsLoggedIn() {
+			m.setHealthy(accountID, true)
+		}
 		return nil
 	}
 	if err != nil {
 		m.recordReconnectFailure(accountID)
+		return err
 	}
-	return err
+	if session.client.Store != nil && session.client.Store.ID != nil {
+		if waitErr := m.waitUntilReady(ctx, accountID, session.client); waitErr != nil {
+			m.recordReconnectFailure(accountID)
+			return waitErr
+		}
+	}
+	return nil
 }
 
 func (m *Manager) Disconnect(accountID string) error {
@@ -917,11 +930,10 @@ func (m *Manager) superviseConnections(ctx context.Context) {
 		if !session.nextReconnectAt.IsZero() && now.Before(session.nextReconnectAt) {
 			continue
 		}
-		if session.healthy && session.client.IsConnected() && session.client.IsLoggedIn() {
-			continue
-		}
-		if session.client.IsConnected() && session.client.IsLoggedIn() && !session.lastConnectedAt.IsZero() &&
-			!session.unhealthySince.IsZero() && now.Sub(session.unhealthySince) < connectionSupervisorUnhealthyGrace {
+		if session.client.IsConnected() && session.client.IsLoggedIn() {
+			if !session.healthy {
+				m.markSessionHealthyLocked(session)
+			}
 			continue
 		}
 		session.supervisorReconnectRun = true

@@ -30,6 +30,28 @@ func TestAccountInfoTreatsLoggedInHealthySessionAsOnlineWithoutActiveSocket(t *t
 	}
 }
 
+func TestSupervisorMarksConnectedLoggedInSessionHealthy(t *testing.T) {
+	m := &Manager{
+		sessions: map[string]*Session{
+			"acc-1": {
+				meta:    AccountMeta{ID: "acc-1", JID: "6285343791016@s.whatsapp.net", CreatedAt: time.Now()},
+				healthy: false,
+				client:  nil,
+			},
+		},
+	}
+
+	m.mu.Lock()
+	session := m.sessions["acc-1"]
+	m.markSessionHealthyLocked(session)
+	m.mu.Unlock()
+
+	info := m.ListAccounts()[0]
+	if !info.Connected || info.Status != "Online" {
+		t.Fatalf("status after supervisor healing = connected=%v status=%q, want connected Online", info.Connected, info.Status)
+	}
+}
+
 func TestReconnectBackoff(t *testing.T) {
 	tests := []struct {
 		failures int
