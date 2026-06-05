@@ -205,6 +205,7 @@ func (m *Manager) newClient(session *Session) *whatsmeow.Client {
 }
 
 func (m *Manager) onEvent(accountID string, evt interface{}, client *whatsmeow.Client) {
+	reconnectAfterPair := false
 	m.mu.Lock()
 	session := m.sessions[accountID]
 	if session != nil {
@@ -212,6 +213,16 @@ func (m *Manager) onEvent(accountID string, evt interface{}, client *whatsmeow.C
 		case *events.Connected:
 			m.markSessionHealthyLocked(session)
 			session.lastConnectedAt = time.Now()
+		case *events.PairSuccess:
+			session.healthy = false
+			session.unhealthySince = time.Time{}
+			session.nextReconnectAt = time.Time{}
+			session.consecutiveReconnectFail = 0
+			session.autoReconnectBlocked = false
+			session.autoReconnectBlockedTill = time.Time{}
+			reconnectAfterPair = true
+		case *events.PairError:
+			m.markSessionUnhealthyLocked(session)
 		case *events.KeepAliveRestored:
 			m.markSessionHealthyLocked(session)
 		case *events.KeepAliveTimeout:
@@ -254,6 +265,20 @@ func (m *Manager) onEvent(accountID string, evt interface{}, client *whatsmeow.C
 	if m.eventHandler != nil {
 		m.eventHandler(accountID, evt, client)
 	}
+	if reconnectAfterPair {
+		go m.reconnectAfterPair(accountID)
+	}
+}
+
+func (m *Manager) reconnectAfterPair(accountID string) {
+	time.Sleep(1500 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	if err := m.Reconnect(ctx, accountID); err != nil {
+		logrus.WithError(err).WithField("account_id", accountID).Warn("WhatsApp reconnect after QR pairing failed")
+		return
+	}
+	logrus.WithField("account_id", accountID).Info("WhatsApp session reconnected after QR pairing")
 }
 
 func (m *Manager) saveStateLocked() {
@@ -811,7 +836,7 @@ func (m *Manager) superviseConnections(ctx context.Context) {
 		if session.healthy && session.client.IsConnected() && session.client.IsLoggedIn() {
 			continue
 		}
-		if session.client.IsConnected() && session.client.IsLoggedIn() &&
+		if session.client.IsConnected() && session.client.IsLoggedIn() && !session.lastConnectedAt.IsZero() &&
 			!session.unhealthySince.IsZero() && now.Sub(session.unhealthySince) < connectionSupervisorUnhealthyGrace {
 			continue
 		}
