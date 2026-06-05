@@ -114,6 +114,15 @@ function getActiveAccount() {
   return waAccounts.find(acc => acc.id === activeWAAccountId) || waAccounts[0] || null;
 }
 
+function isAccountOnline(acc) {
+  return !!(acc && acc.connected && acc.logged_in);
+}
+
+function accountDisplayStatus(acc, fallback = 'Offline') {
+  if (isAccountOnline(acc)) return 'Online';
+  return acc?.status || fallback;
+}
+
 function jsString(str) {
   return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r/g, '').replace(/\n/g, '\\n');
 }
@@ -896,7 +905,8 @@ function renderAccountSwitcher() {
   sel.disabled = false;
   sel.innerHTML = waAccounts.map(acc => {
     const phone = acc.phone ? ` - ${escapeHtml(acc.phone)}` : '';
-    const status = acc.status ? ` (${escapeHtml(acc.status)})` : '';
+    const displayStatus = accountDisplayStatus(acc, '');
+    const status = displayStatus ? ` (${escapeHtml(displayStatus)})` : '';
     const selected = acc.id === activeWAAccountId ? ' selected' : '';
     return `<option value="${escapeHtml(acc.id)}"${selected}>${escapeHtml(acc.name)}${phone}${status}</option>`;
   }).join('');
@@ -924,7 +934,7 @@ function renderAccountCards() {
             <div class="account-card-subtitle">${escapeHtml(phone)}</div>
           </div>
           <div class="account-chip-row">
-            <span class="account-chip">${escapeHtml(acc.status || 'Offline')}</span>
+            <span class="account-chip">${escapeHtml(accountDisplayStatus(acc))}</span>
             ${pending}
             ${webhookStatus}
           </div>
@@ -960,10 +970,10 @@ function renderAccountCards() {
 function renderActiveAccountSummary() {
   const active = getActiveAccount();
   if ($('heroAccountName')) $('heroAccountName').textContent = active?.name || 'Belum ada akun';
-  if ($('heroAccountStatus')) $('heroAccountStatus').textContent = active?.status || 'Tambahkan akun lalu scan QR.';
+  if ($('heroAccountStatus')) $('heroAccountStatus').textContent = active ? accountDisplayStatus(active, 'Tambahkan akun lalu scan QR.') : 'Tambahkan akun lalu scan QR.';
   if ($('accountCount')) $('accountCount').textContent = waAccounts.length;
   if ($('activeAccountName')) $('activeAccountName').textContent = active?.name || '-';
-  if ($('activeAccountStatus')) $('activeAccountStatus').textContent = active?.status || '-';
+  if ($('activeAccountStatus')) $('activeAccountStatus').textContent = active ? accountDisplayStatus(active, '-') : '-';
   if ($('activeAccountPhone')) $('activeAccountPhone').textContent = active?.phone || active?.jid || '-';
 }
 
@@ -1217,10 +1227,10 @@ function renderWarmingAccountList() {
 
   wrap.innerHTML = waAccounts.map(acc => {
     const checked = selectedIDs.has(acc.id) ? ' checked' : '';
-    const online = acc.connected && acc.logged_in;
+    const online = isAccountOnline(acc);
     const itemClass = `warming-account-item${selectedIDs.has(acc.id) ? ' is-selected' : ''}${online ? '' : ' is-offline'}`;
     const statusClass = online ? 'warming-account-status online' : 'warming-account-status';
-    const statusText = online ? 'Online' : (acc.status || 'Offline');
+    const statusText = accountDisplayStatus(acc);
     const phone = acc.phone || '-';
     return `
       <label class="${itemClass}">
@@ -1235,7 +1245,7 @@ function renderWarmingAccountList() {
   }).join('');
 
   const selectedCount = collectWarmingSelectedAccountIDs().length;
-  const eligibleCount = waAccounts.filter(acc => acc.connected && acc.logged_in).length;
+  const eligibleCount = waAccounts.filter(isAccountOnline).length;
   if (warning) {
     if (selectedCount < 2) {
       warning.textContent = 'Belum ada sender yang dipilih. Minimal diperlukan 2 akun.';

@@ -19,7 +19,8 @@ func TestIsRetryableSendError(t *testing.T) {
 		{name: "message timeout", err: whatsmeow.ErrMessageTimedOut, want: true},
 		{name: "disconnected response", err: &whatsmeow.DisconnectedError{Action: "message send"}, want: true},
 		{name: "wrapped disconnected", err: fmt.Errorf("send: %w", whatsmeow.ErrNotConnected), want: true},
-		{name: "caller canceled", err: context.Canceled, want: false},
+		{name: "caller canceled", err: context.Canceled, want: true},
+		{name: "whatsmeow canceled write", err: errors.New("failed to write msg: failed to acquire lock: context canceled"), want: true},
 		{name: "caller deadline", err: context.DeadlineExceeded, want: false},
 		{name: "server rejected", err: errors.New("server rejected message"), want: false},
 	}

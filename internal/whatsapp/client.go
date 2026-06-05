@@ -426,20 +426,29 @@ func SendMessageForUserAccount(ctx context.Context, userID, accountID string, ji
 		return fmt.Errorf("WhatsApp connection unavailable: %w", err)
 	}
 
+	sendCtx, sendCancel := sendOperationContext(ctx)
 	messageID := client.GenerateMessageID()
-	_, err = client.SendMessage(ctx, jid, msg, whatsmeow.SendRequestExtra{ID: messageID})
+	_, err = client.SendMessage(sendCtx, jid, msg, whatsmeow.SendRequestExtra{ID: messageID})
+	sendCancel()
 	if err == nil || !isRetryableSendError(err) {
 		return err
 	}
 
-	reconnectCtx, reconnectCancel := connectionContext(ctx)
+	reconnectCtx, reconnectCancel := connectionContext(context.Background())
 	reconnectErr := mgr.Reconnect(reconnectCtx, accountID)
-	reconnectCancel()
 	if reconnectErr != nil {
+		reconnectCancel()
 		return fmt.Errorf("send failed (%v), reconnect failed: %w", err, reconnectErr)
 	}
+	retryClient, retryClientErr := mgr.EnsureConnected(reconnectCtx, accountID)
+	reconnectCancel()
+	if retryClientErr != nil {
+		return fmt.Errorf("send failed (%v), reconnect verification failed: %w", err, retryClientErr)
+	}
 
-	_, retryErr := client.SendMessage(ctx, jid, msg, whatsmeow.SendRequestExtra{ID: messageID})
+	retryCtx, retryCancel := sendOperationContext(ctx)
+	_, retryErr := retryClient.SendMessage(retryCtx, jid, msg, whatsmeow.SendRequestExtra{ID: messageID})
+	retryCancel()
 	if retryErr != nil {
 		return fmt.Errorf("send failed after reconnect: %w", retryErr)
 	}
@@ -561,9 +570,22 @@ func connectionContext(ctx context.Context) (context.Context, context.CancelFunc
 	return context.WithTimeout(ctx, 30*time.Second)
 }
 
+func sendOperationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil || errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		ctx = context.Background()
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, 45*time.Second)
+}
+
 func isRetryableSendError(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if err == nil || errors.Is(err, context.DeadlineExceeded) {
 		return false
+	}
+	if errors.Is(err, context.Canceled) || strings.Contains(strings.ToLower(err.Error()), "context canceled") {
+		return true
 	}
 	if errors.Is(err, whatsmeow.ErrNotConnected) || errors.Is(err, whatsmeow.ErrMessageTimedOut) {
 		return true
