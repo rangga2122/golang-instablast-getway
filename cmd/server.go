@@ -1493,7 +1493,15 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err := whatsapp.SetActiveAccountForUser(user.ID, body.AccountID); err != nil {
 			return c.Status(404).JSON(fiber.Map{"error": err.Error()})
 		}
-		return c.JSON(fiber.Map{"status": "ok", "active_account_id": whatsapp.GetActiveAccountIDForUser(user.ID)})
+		resolvedAccountID := whatsapp.GetActiveAccountIDForUser(user.ID)
+		go func() {
+			connectCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := whatsapp.EnsureClientConnectedForAccountForUser(connectCtx, user.ID, resolvedAccountID); err != nil {
+				logrus.WithError(err).WithField("account_id", resolvedAccountID).Debug("active WhatsApp account background reconnect skipped")
+			}
+		}()
+		return c.JSON(fiber.Map{"status": "ok", "active_account_id": resolvedAccountID})
 	})
 
 	api.Patch("/accounts/:id", func(c *fiber.Ctx) error {
@@ -1576,6 +1584,15 @@ func runServer(cmd_ *cobra.Command, args []string) {
 				"active_account_id": whatsapp.GetActiveAccountIDForUser(user.ID),
 				"accounts":          whatsapp.ListAccountsForUser(user.ID),
 			})
+		}
+		if account.LoggedIn && !account.Connected {
+			go func(targetAccountID string) {
+				connectCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := whatsapp.EnsureClientConnectedForAccountForUser(connectCtx, user.ID, targetAccountID); err != nil {
+					logrus.WithError(err).WithField("account_id", targetAccountID).Debug("WhatsApp status background reconnect skipped")
+				}
+			}(account.ID)
 		}
 		return c.JSON(fiber.Map{
 			"connected":         account.Connected && account.LoggedIn,

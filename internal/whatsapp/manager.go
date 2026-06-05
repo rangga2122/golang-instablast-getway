@@ -711,7 +711,7 @@ func (m *Manager) sessionReady(accountID string, client *whatsmeow.Client) bool 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	session := m.sessions[m.resolveLocked(accountID)]
-	return session != nil && session.client == client && session.healthy
+	return session != nil && session.client == client
 }
 
 func (m *Manager) setHealthy(accountID string, healthy bool) {
@@ -894,9 +894,6 @@ func (m *Manager) accountInfoLocked(session *Session) AccountInfo {
 	if session.client != nil {
 		info.Connected = session.client.IsConnected()
 		info.LoggedIn = session.client.IsLoggedIn()
-		if info.LoggedIn && !session.healthy {
-			info.Connected = false
-		}
 		switch {
 		case info.Connected && info.LoggedIn:
 			info.Status = "Online"
