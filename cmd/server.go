@@ -11,6 +11,7 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1119,38 +1120,50 @@ func runServer(cmd_ *cobra.Command, args []string) {
 				"connected": whatsapp.IsClientConnectedForAccountForUser(trialOTPSystemUserID, account.ID),
 			})
 		}
-		qrChan, err := client.GetQRChannel(context.Background())
+		qrCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if client.IsConnected() && !client.IsLoggedIn() {
+			client.Disconnect()
+		}
+		qrChan, err := client.GetQRChannel(qrCtx)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		if err := client.Connect(); err != nil {
+		if err := client.ConnectContext(qrCtx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		for evt := range qrChan {
-			switch evt.Event {
-			case "code":
-				png, err := qrcode.Encode(evt.Code, qrcode.Medium, 512)
-				if err != nil {
-					return c.Status(500).JSON(fiber.Map{"error": "Failed to generate QR"})
+		for {
+			select {
+			case <-qrCtx.Done():
+				return c.JSON(fiber.Map{"status": "timeout", "account": account, "connected": false})
+			case evt, ok := <-qrChan:
+				if !ok {
+					return c.JSON(fiber.Map{"status": "timeout", "account": account, "connected": false})
 				}
-				return c.JSON(fiber.Map{
-					"status":    "qr",
-					"qr":        "data:image/png;base64," + base64.StdEncoding.EncodeToString(png),
-					"code":      evt.Code,
-					"account":   account,
-					"connected": false,
-				})
-			case "success":
-				updatedAccount, _ := whatsapp.GetAccountForUser(trialOTPSystemUserID, account.ID)
-				return c.JSON(fiber.Map{
-					"status":    "success",
-					"jid":       updatedAccount.Phone,
-					"account":   updatedAccount,
-					"connected": true,
-				})
+				switch evt.Event {
+				case "code":
+					png, err := qrcode.Encode(evt.Code, qrcode.Medium, 512)
+					if err != nil {
+						return c.Status(500).JSON(fiber.Map{"error": "Failed to generate QR"})
+					}
+					return c.JSON(fiber.Map{
+						"status":    "qr",
+						"qr":        "data:image/png;base64," + base64.StdEncoding.EncodeToString(png),
+						"code":      evt.Code,
+						"account":   account,
+						"connected": false,
+					})
+				case "success":
+					updatedAccount, _ := whatsapp.GetAccountForUser(trialOTPSystemUserID, account.ID)
+					return c.JSON(fiber.Map{
+						"status":    "success",
+						"jid":       updatedAccount.Phone,
+						"account":   updatedAccount,
+						"connected": true,
+					})
+				}
 			}
 		}
-		return c.JSON(fiber.Map{"status": "timeout", "account": account, "connected": false})
 	})
 	api.Post("/admin/trial-otp/reconnect", func(c *fiber.Ctx) error {
 		user, err := currentUser(c)
@@ -1161,7 +1174,9 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		if err := whatsapp.ReconnectForAccountForUser(context.Background(), trialOTPSystemUserID, account.ID); err != nil {
+		reconnectCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := whatsapp.ReconnectForAccountForUser(reconnectCtx, trialOTPSystemUserID, account.ID); err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(fiber.Map{"status": "reconnected"})
@@ -1570,38 +1585,50 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			})
 		}
 
-		qrChan, err := client.GetQRChannel(context.Background())
+		qrCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if client.IsConnected() && !client.IsLoggedIn() {
+			client.Disconnect()
+		}
+		qrChan, err := client.GetQRChannel(qrCtx)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		if err := client.Connect(); err != nil {
+		if err := client.ConnectContext(qrCtx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 
-		for evt := range qrChan {
-			switch evt.Event {
-			case "code":
-				png, err := qrcode.Encode(evt.Code, qrcode.Medium, 512)
-				if err != nil {
-					return c.Status(500).JSON(fiber.Map{"error": "Failed to generate QR"})
+		for {
+			select {
+			case <-qrCtx.Done():
+				return c.JSON(fiber.Map{"status": "timeout", "account_id": accountID})
+			case evt, ok := <-qrChan:
+				if !ok {
+					return c.JSON(fiber.Map{"status": "timeout", "account_id": accountID})
 				}
-				return c.JSON(fiber.Map{
-					"status":     "qr",
-					"qr":         "data:image/png;base64," + base64.StdEncoding.EncodeToString(png),
-					"code":       evt.Code,
-					"account_id": accountID,
-				})
-			case "success":
-				account, _ := whatsapp.GetAccountForUser(user.ID, accountID)
-				return c.JSON(fiber.Map{
-					"status":     "success",
-					"jid":        account.Phone,
-					"account_id": accountID,
-					"account":    account,
-				})
+				switch evt.Event {
+				case "code":
+					png, err := qrcode.Encode(evt.Code, qrcode.Medium, 512)
+					if err != nil {
+						return c.Status(500).JSON(fiber.Map{"error": "Failed to generate QR"})
+					}
+					return c.JSON(fiber.Map{
+						"status":     "qr",
+						"qr":         "data:image/png;base64," + base64.StdEncoding.EncodeToString(png),
+						"code":       evt.Code,
+						"account_id": accountID,
+					})
+				case "success":
+					account, _ := whatsapp.GetAccountForUser(user.ID, accountID)
+					return c.JSON(fiber.Map{
+						"status":     "success",
+						"jid":        account.Phone,
+						"account_id": accountID,
+						"account":    account,
+					})
+				}
 			}
 		}
-		return c.JSON(fiber.Map{"status": "timeout", "account_id": accountID})
 	})
 
 	api.Post("/reconnect", func(c *fiber.Ctx) error {
@@ -1610,7 +1637,9 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
 		}
 		accountID := accountIDFromBodyOrQuery(c)
-		if err := whatsapp.ReconnectForAccountForUser(context.Background(), user.ID, accountID); err != nil {
+		reconnectCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := whatsapp.ReconnectForAccountForUser(reconnectCtx, user.ID, accountID); err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		return c.JSON(fiber.Map{"status": "reconnected", "account_id": whatsapp.ResolveAccountIDForUser(user.ID, accountID)})

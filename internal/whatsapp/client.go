@@ -365,15 +365,13 @@ func LogoutForAccount(accountID string) error {
 }
 
 func LogoutForAccountForUser(userID, accountID string) error {
-	c := GetClientByAccountForUser(userID, accountID)
-	if c == nil {
-		return fmt.Errorf("client not initialized")
+	mgr := GetManagerForUser(userID)
+	if mgr == nil {
+		return fmt.Errorf("manager not initialized")
 	}
-	if err := c.Logout(context.Background()); err != nil {
-		return err
-	}
-	c.Disconnect()
-	return nil
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	return mgr.Logout(ctx, accountID)
 }
 
 func SendText(ctx context.Context, jid types.JID, text string) error {

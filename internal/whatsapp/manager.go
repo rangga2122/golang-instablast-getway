@@ -504,6 +504,51 @@ func (m *Manager) Disconnect(accountID string) error {
 	return nil
 }
 
+func (m *Manager) Logout(ctx context.Context, accountID string) error {
+	session := m.getSession(accountID)
+	if session == nil || session.client == nil {
+		return fmt.Errorf("account not found")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if m.container == nil {
+		return fmt.Errorf("container not initialized")
+	}
+
+	session.connectMu.Lock()
+	defer session.connectMu.Unlock()
+
+	logoutErr := session.client.Logout(ctx)
+	if logoutErr != nil {
+		logrus.WithError(logoutErr).
+			WithField("account_id", session.meta.ID).
+			Warn("whatsapp logout request failed; clearing local session so QR login can be scanned again")
+		session.client.Disconnect()
+		if session.device != nil && session.device.ID != nil {
+			if err := session.device.Delete(ctx); err != nil {
+				return fmt.Errorf("logout failed (%v), and local session cleanup failed: %w", logoutErr, err)
+			}
+		}
+	}
+
+	m.mu.Lock()
+	session.meta.JID = ""
+	session.device = m.container.NewDevice()
+	session.healthy = false
+	session.unhealthySince = time.Time{}
+	session.nextReconnectAt = time.Time{}
+	session.consecutiveReconnectFail = 0
+	session.autoReconnectBlocked = false
+	session.autoReconnectBlockedTill = time.Time{}
+	session.supervisorReconnectRun = false
+	session.lastConnectedAt = time.Time{}
+	session.client = m.newClient(session)
+	m.saveStateLocked()
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *Manager) Reconnect(ctx context.Context, accountID string) error {
 	session := m.getSession(accountID)
 	if session == nil || session.client == nil {

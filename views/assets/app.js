@@ -1320,6 +1320,9 @@ function switchTab(tab) {
   if (btn) btn.classList.add('active');
   const pane = $('tab-' + paneTab);
   if (pane) pane.classList.add('active');
+  const main = document.querySelector('.main-content');
+  if (main) main.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   if (paneTab === 'accounts') loadAccounts();
   if (paneTab === 'contacts') {
     loadContactLists();
@@ -1480,6 +1483,13 @@ async function requestQR(accountID = activeWAAccountId) {
       appendLog('QR Code ditampilkan, silakan scan', 'success');
 
       pollConnection(data.account_id || targetAccountID || activeWAAccountId);
+    } else if (data.status === 'timeout') {
+      appendLog('QR belum tersedia. Klik scan ulang atau logout dulu jika status akun bermasalah.', 'warning');
+      showToast('QR belum tersedia, coba scan ulang', 'warning');
+    } else if (data.status === 'success') {
+      await loadAccounts();
+      updateConnectionUI({ connected: true, jid: data.jid });
+      showToast('WhatsApp Terhubung!', 'success');
     }
   } catch (e) {
     showToast('Gagal mendapatkan QR: ' + e.message, 'error');
@@ -1519,7 +1529,11 @@ async function logoutWA() {
   if (!confirm('Yakin ingin logout dari WhatsApp?')) return;
   try {
     await api('/logout', { method: 'POST', body: JSON.stringify(withAccountBody()) });
+    if ($('qrContainer')) $('qrContainer').style.display = 'none';
+    if ($('qrImage')) $('qrImage').src = '';
+    if ($('btnScanQR')) $('btnScanQR').style.display = '';
     showToast('Logout berhasil', 'success');
+    await loadAccounts();
     await checkConnection();
   } catch (e) {
     showToast('Gagal logout: ' + e.message, 'error');
@@ -4272,6 +4286,10 @@ async function requestAdminTrialOTPQR() {
           }
         } catch (_) {}
       }, 3000);
+    } else if (data.status === 'timeout') {
+      setAdminTrialOTPText('adminTrialOTPDeviceStatus', 'QR belum tersedia. Klik Scan Barcode Verifier lagi, atau Logout Verifier lalu scan ulang.', '#f59e0b');
+    } else if (data.status === 'success') {
+      setAdminTrialOTPText('adminTrialOTPDeviceStatus', 'WhatsApp verifier OTP berhasil terhubung.', '#22c55e');
     }
   } catch (e) {
     setAdminTrialOTPText('adminTrialOTPDeviceStatus', e.message, '#ef4444');

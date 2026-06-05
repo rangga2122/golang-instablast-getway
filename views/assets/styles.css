@@ -4293,6 +4293,97 @@ select {
 }
 
 @media (max-width: 768px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .topbar {
+    position: fixed !important;
+    inset: 0 0 auto 0 !important;
+    z-index: 150 !important;
+  }
+
+  .mobile-menu-btn,
+  .topbar-left .mobile-menu-btn {
+    display: inline-flex !important;
+    flex: 0 0 40px;
+  }
+
+  .topbar-logo {
+    width: 34px;
+    height: 34px;
+  }
+
+  .topbar-text {
+    max-width: 145px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 17px;
+  }
+
+  .version-badge,
+  .topbar-search {
+    display: none !important;
+  }
+
+  .topbar-right {
+    max-width: 48vw;
+    overflow: hidden;
+  }
+
+  .account-switcher select {
+    max-width: 46vw;
+  }
+
+  .sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    z-index: 170 !important;
+    width: min(292px, calc(100vw - 34px)) !important;
+    min-width: 0 !important;
+    height: 100dvh !important;
+    padding: 18px 12px 16px !important;
+    overflow: hidden !important;
+    transform: translateX(-110%) !important;
+  }
+
+  body.sidebar-open .sidebar {
+    transform: translateX(0) !important;
+  }
+
+  .sidebar-backdrop {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 160 !important;
+  }
+
+  .sidebar-nav {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 24px;
+  }
+
+  .nav-item {
+    min-height: 46px;
+    font-size: 15.5px;
+  }
+
+  .app-layout,
+  .main-content {
+    min-width: 0;
+  }
+
+  .main-content {
+    height: 100dvh !important;
+    overflow-y: auto !important;
+    padding: 86px 12px 24px !important;
+  }
+
   .card,
   .wa-hero-card,
   .stat-card,
@@ -4308,12 +4399,8 @@ select {
     padding: 16px;
   }
 
-  .nav-item {
-    min-height: 46px;
-    font-size: 15.5px;
-  }
-
   .two-column,
+  .form-row,
   .tools-grid,
   .dashboard-user-grid,
   .api-docs-grid,
@@ -4322,5 +4409,30 @@ select {
   .ai-account-knowledge-matrix,
   .account-summary-panel {
     grid-template-columns: 1fr !important;
+  }
+
+  .btn-row {
+    gap: 8px;
+  }
+
+  .btn-row .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .data-table {
+    min-width: 720px;
+  }
+
+  #tab-admin .card {
+    overflow: hidden;
+  }
+
+  #adminTrialOTPQRWrap {
+    margin-inline: auto;
+  }
+
+  #adminTrialOTPQRImage {
+    max-width: min(280px, 86vw) !important;
   }
 }
