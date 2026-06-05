@@ -9,7 +9,7 @@
   <title>InstaBlast Pro</title>
   <meta name="description" content="InstaBlast Pro - WhatsApp Broadcast & AI Management" />
   <link rel="icon" href="/icon.ico" sizes="any" />
-  <link rel="stylesheet" href="/assets/styles.css?v=20260605-mobile-qr-fix-v2" />
+  <link rel="stylesheet" href="/assets/styles.css?v=20260605-pair-code" />
 </head>
 <body>
 
@@ -247,7 +247,7 @@
       <div class="tab-pane" id="tab-accounts">
         <div class="page-header"><h1 class="page-title">Device WhatsApp</h1><p class="page-subtitle">Kelola semua device WhatsApp yang terhubung untuk melakukan blast.</p></div>
         <div class="two-column">
-          <div class="column"><div class="card"><div class="card-title"><span>WA</span> Tambah Akun</div><div class="form-group"><label>Nama akun</label><input type="text" id="newAccountName" placeholder="Contoh: CS Utama" /></div><div class="btn-row"><button class="btn btn-primary" onclick="createAccount()">Tambah akun</button><button class="btn btn-secondary" onclick="openQRForAccount()">Scan QR akun aktif</button></div><div class="hint">Jika nama dikosongkan, nama akun akan dibuat otomatis.</div></div></div>
+          <div class="column"><div class="card"><div class="card-title"><span>WA</span> Tambah Akun</div><div class="form-group"><label>Nama akun</label><input type="text" id="newAccountName" placeholder="Contoh: CS Utama" /></div><div class="btn-row"><button class="btn btn-primary" onclick="createAccount()">Tambah akun</button><button class="btn btn-secondary" onclick="openQRForAccount()">Scan QR akun aktif</button></div><div class="hint">Jika nama dikosongkan, nama akun akan dibuat otomatis.</div><div class="form-divider"></div><div class="form-group"><label>Pairing pakai kode</label><input type="tel" id="pairPhoneNumber" placeholder="Contoh: 628123456789" /></div><div class="btn-row"><button class="btn btn-primary" onclick="requestPairCode()">Minta Kode Pairing</button></div><div id="pairCodeResult" class="status-text"></div><div class="hint">Buka WhatsApp di HP, pilih Perangkat tertaut, lalu pilih Tautkan dengan nomor telepon saja dan masukkan kode ini.</div></div></div>
           <div class="column"><div class="card"><div class="card-title"><span>Info</span> Ringkasan Akun Aktif</div><div class="account-summary-panel"><div class="account-summary-label">Nama</div><div class="account-summary-value" id="activeAccountName">-</div><div class="account-summary-label">Status</div><div class="account-summary-value" id="activeAccountStatus">-</div><div class="account-summary-label">Nomor</div><div class="account-summary-value" id="activeAccountPhone">-</div></div></div></div>
         </div>
         <div class="card"><div class="card-title"><span>List</span> Daftar Akun WA</div><div id="waAccountCards" class="account-cards"><div class="empty-state-inline">Memuat akun...</div></div></div>
@@ -1176,6 +1176,6 @@ Content-Type: application/json
     </div>
   </div>
 
-  <script src="/assets/app.js?v=20260605-mobile-qr-fix-v2"></script>
+  <script src="/assets/app.js?v=20260605-pair-code"></script>
 </body>
 </html>

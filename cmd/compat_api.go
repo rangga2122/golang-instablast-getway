@@ -24,6 +24,7 @@ const compatDeviceIDHeader = "X-Device-Id"
 func registerCompatAPI(app fiber.Router) {
 	app.Get("/app/login", compatAppLogin)
 	app.Get("/app/login-with-code", compatAppLoginWithCode)
+	app.Post("/app/login-with-code", compatAppLoginWithCode)
 	app.Get("/app/logout", compatAppLogout)
 	app.Get("/app/reconnect", compatAppReconnect)
 	app.Get("/app/devices", compatAppDevices)
@@ -35,6 +36,7 @@ func registerCompatAPI(app fiber.Router) {
 	app.Delete("/devices/:device_id", compatDeleteDevice)
 	app.Get("/devices/:device_id/login", compatDeviceLogin)
 	app.Post("/devices/:device_id/login/code", compatDeviceLoginWithCode)
+	app.Post("/devices/:device_id/login-with-code", compatDeviceLoginWithCode)
 	app.Post("/devices/:device_id/logout", compatDeviceLogout)
 	app.Post("/devices/:device_id/reconnect", compatDeviceReconnect)
 	app.Get("/devices/:device_id/status", compatDeviceStatus)
@@ -918,7 +920,7 @@ func compatLoginViaQR(c *fiber.Ctx, deviceID string) error {
 }
 
 func compatLoginWithPairCode(c *fiber.Ctx, deviceID string) error {
-	_, accountID, client, err := compatResolveAccountWithDevice(c, deviceID, true)
+	user, accountID, client, err := compatResolveAccountWithDevice(c, deviceID, true)
 	if err != nil {
 		return compatAPIError(c, fiber.StatusBadRequest, "DEVICE_ID_REQUIRED", err.Error(), nil)
 	}
@@ -929,15 +931,17 @@ func compatLoginWithPairCode(c *fiber.Ctx, deviceID string) error {
 	if client.IsLoggedIn() {
 		return compatOK(c, "Login with code success", fiber.Map{"device_id": accountID, "pair_code": ""})
 	}
-	if !client.IsConnected() {
-		if err := client.Connect(); err != nil {
-			return compatAPIError(c, fiber.StatusBadRequest, "CONNECT_FAILED", err.Error(), nil)
+	pairCtx, cancel := context.WithTimeout(context.Background(), 160*time.Second)
+	keepPairingAlive := false
+	defer func() {
+		if !keepPairingAlive {
+			cancel()
 		}
-		time.Sleep(2 * time.Second)
-	}
-	pairCode, err := client.PairPhone(c.UserContext(), phone, true, whatsmeow.PairClientChrome, "InstaBlast Pro")
+	}()
+	pairCode, _, err := whatsapp.PairCodeForUser(pairCtx, user.ID, accountID, phone)
 	if err != nil {
 		return compatAPIError(c, fiber.StatusBadRequest, "PAIR_CODE_FAILED", err.Error(), nil)
 	}
+	keepPairingAlive = true
 	return compatOK(c, "Login with code success", fiber.Map{"device_id": accountID, "pair_code": pairCode})
 }

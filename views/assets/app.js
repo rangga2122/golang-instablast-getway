@@ -1079,6 +1079,66 @@ async function openQRForAccount(accountID = activeWAAccountId) {
   return requestQR(accountID);
 }
 
+async function requestPairCode(accountID = activeWAAccountId) {
+  const result = $('pairCodeResult');
+  const phone = $('pairPhoneNumber')?.value?.trim() || '';
+  const targetAccountID = accountID || activeWAAccountId;
+  if (!phone) {
+    showToast('Masukkan nomor WhatsApp dulu', 'error');
+    if (result) result.textContent = 'Nomor WhatsApp wajib diisi, contoh 628123456789.';
+    return;
+  }
+  if (!targetAccountID) {
+    showToast('Tambahkan akun WA dulu', 'error');
+    if (result) result.textContent = 'Tambahkan akun WA dulu sebelum meminta kode pairing.';
+    return;
+  }
+  if (result) {
+    result.dataset.code = '';
+    result.innerHTML = 'Meminta kode pairing...';
+  }
+  try {
+    const data = await api('/pair-code', {
+      method: 'POST',
+      body: JSON.stringify({ account_id: targetAccountID, phone })
+    });
+    if (data.status === 'already_logged_in') {
+      if (result) result.textContent = 'Akun ini sudah login.';
+      showToast('Akun sudah login', 'success');
+      await loadAccounts();
+      return;
+    }
+    if (data.pair_code) {
+      if (result) {
+        result.dataset.code = data.pair_code;
+        result.innerHTML = `
+          <div class="pair-code-box">
+            <div class="pair-code-label">Kode pairing</div>
+            <div class="pair-code-value">${escapeHtml(data.pair_code)}</div>
+            <button class="btn btn-secondary btn-sm" onclick="copyPairCode()">Salin kode</button>
+          </div>
+        `;
+      }
+      showToast('Kode pairing siap. Masukkan di WhatsApp HP.', 'success');
+      pollConnection(data.account_id || targetAccountID);
+    }
+  } catch (e) {
+    if (result) result.textContent = 'Gagal meminta kode pairing: ' + e.message;
+    showToast('Gagal pairing code: ' + e.message, 'error');
+  }
+}
+
+async function copyPairCode() {
+  const code = $('pairCodeResult')?.dataset?.code || '';
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code);
+    showToast('Kode pairing disalin', 'success');
+  } catch (_) {
+    showToast('Gagal menyalin kode', 'error');
+  }
+}
+
 async function renameAccount(accountID) {
   const current = waAccounts.find(acc => acc.id === accountID);
   const name = prompt('Nama akun baru:', current?.name || '');

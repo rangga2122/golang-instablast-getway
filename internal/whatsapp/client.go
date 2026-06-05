@@ -384,6 +384,14 @@ func ResetForPairingForUser(ctx context.Context, userID, accountID string) (Acco
 	return mgr.ResetForPairing(ctx, accountID)
 }
 
+func PairCodeForUser(ctx context.Context, userID, accountID, phone string) (string, AccountInfo, error) {
+	mgr := GetManagerForUser(userID)
+	if mgr == nil {
+		return "", AccountInfo{}, fmt.Errorf("manager not initialized")
+	}
+	return mgr.PairCode(ctx, accountID, phone)
+}
+
 func SendText(ctx context.Context, jid types.JID, text string) error {
 	return SendTextForUserAccount(ctx, "", "", jid, text)
 }

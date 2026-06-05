@@ -15,6 +15,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	waTypes "go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
@@ -213,6 +214,7 @@ func (m *Manager) onEvent(accountID string, evt interface{}, client *whatsmeow.C
 		case *events.Connected:
 			m.markSessionHealthyLocked(session)
 			session.lastConnectedAt = time.Now()
+			go m.sendPresenceAvailable(client)
 		case *events.PairSuccess:
 			session.healthy = false
 			session.unhealthySince = time.Time{}
@@ -279,6 +281,17 @@ func (m *Manager) reconnectAfterPair(accountID string) {
 		return
 	}
 	logrus.WithField("account_id", accountID).Info("WhatsApp session reconnected after QR pairing")
+}
+
+func (m *Manager) sendPresenceAvailable(client *whatsmeow.Client) {
+	if client == nil || !client.IsConnected() || !client.IsLoggedIn() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := client.SendPresence(ctx, waTypes.PresenceAvailable); err != nil {
+		logrus.WithError(err).Debug("failed to send WhatsApp available presence")
+	}
 }
 
 func (m *Manager) saveStateLocked() {
@@ -622,6 +635,77 @@ func (m *Manager) ResetForPairing(ctx context.Context, accountID string) (Accoun
 	return m.accountInfoLocked(session), nil
 }
 
+func (m *Manager) PairCode(ctx context.Context, accountID, phone string) (string, AccountInfo, error) {
+	session := m.getSession(accountID)
+	if session == nil || session.client == nil {
+		return "", AccountInfo{}, fmt.Errorf("account not found")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	phone = normalizePairPhone(phone)
+	if len(phone) <= 6 {
+		return "", AccountInfo{}, fmt.Errorf("nomor WhatsApp wajib memakai format internasional, contoh 628123456789")
+	}
+	if strings.HasPrefix(phone, "0") {
+		return "", AccountInfo{}, fmt.Errorf("nomor WhatsApp jangan diawali 0, gunakan kode negara, contoh 628123456789")
+	}
+
+	session.connectMu.Lock()
+	defer session.connectMu.Unlock()
+
+	if session.client.IsLoggedIn() {
+		m.mu.RLock()
+		info := m.accountInfoLocked(session)
+		m.mu.RUnlock()
+		return "", info, fmt.Errorf("account already logged in")
+	}
+	if session.client.IsConnected() {
+		session.client.Disconnect()
+	}
+
+	qrChan, err := session.client.GetQRChannel(ctx)
+	if err != nil {
+		return "", AccountInfo{}, err
+	}
+	if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+		return "", AccountInfo{}, err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "", AccountInfo{}, ctx.Err()
+		case evt, ok := <-qrChan:
+			if !ok {
+				return "", AccountInfo{}, fmt.Errorf("QR pairing channel closed before pairing code was generated")
+			}
+			switch evt.Event {
+			case whatsmeow.QRChannelEventCode:
+				code, err := session.client.PairPhone(ctx, phone, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+				if err != nil {
+					return "", AccountInfo{}, err
+				}
+				m.mu.RLock()
+				info := m.accountInfoLocked(session)
+				m.mu.RUnlock()
+				return code, info, nil
+			case whatsmeow.QRChannelEventError:
+				if evt.Error != nil {
+					return "", AccountInfo{}, evt.Error
+				}
+				return "", AccountInfo{}, fmt.Errorf("QR pairing error")
+			case "timeout":
+				return "", AccountInfo{}, fmt.Errorf("QR pairing timeout")
+			case "err-client-outdated":
+				return "", AccountInfo{}, fmt.Errorf("WhatsApp client outdated")
+			case "err-scanned-without-multidevice":
+				return "", AccountInfo{}, fmt.Errorf("WhatsApp multi-device belum aktif di HP")
+			}
+		}
+	}
+}
+
 func (m *Manager) Reconnect(ctx context.Context, accountID string) error {
 	session := m.getSession(accountID)
 	if session == nil || session.client == nil {
@@ -921,4 +1005,14 @@ func defaultAccountID(index int, jid string) string {
 		return strings.NewReplacer(":", "-", "@", "-", ".", "-").Replace(jid)
 	}
 	return fmt.Sprintf("acc-%d", index+1)
+}
+
+func normalizePairPhone(phone string) string {
+	var b strings.Builder
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

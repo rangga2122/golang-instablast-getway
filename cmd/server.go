@@ -1603,6 +1603,63 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		})
 	})
 
+	api.Post("/pair-code", func(c *fiber.Ctx) error {
+		user, _, err := currentTenant(c)
+		if err != nil {
+			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
+		}
+		var body struct {
+			AccountID string `json:"account_id"`
+			Phone     string `json:"phone"`
+		}
+		if err := c.BodyParser(&body); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
+		}
+		phone := normalizePhone(body.Phone)
+		if phone == "" {
+			return c.Status(400).JSON(fiber.Map{"error": "Nomor WhatsApp wajib diisi"})
+		}
+		accountID := strings.TrimSpace(body.AccountID)
+		if accountID == "" {
+			account, err := ensureAtLeastOneAccount(user.ID)
+			if err != nil {
+				return c.Status(500).JSON(fiber.Map{"error": err.Error()})
+			}
+			accountID = account.ID
+		}
+		account, err := whatsapp.GetAccountForUser(user.ID, accountID)
+		if err != nil {
+			return c.Status(404).JSON(fiber.Map{"error": err.Error()})
+		}
+		if account.LoggedIn {
+			return c.JSON(fiber.Map{
+				"status":     "already_logged_in",
+				"account_id": account.ID,
+				"account":    account,
+			})
+		}
+
+		pairCtx, cancel := context.WithTimeout(context.Background(), 160*time.Second)
+		keepPairingAlive := false
+		defer func() {
+			if !keepPairingAlive {
+				cancel()
+			}
+		}()
+		code, account, err := whatsapp.PairCodeForUser(pairCtx, user.ID, accountID, phone)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{"error": err.Error(), "account_id": accountID})
+		}
+		keepPairingAlive = true
+		return c.JSON(fiber.Map{
+			"status":     "pair_code",
+			"pair_code":  code,
+			"phone":      phone,
+			"account_id": account.ID,
+			"account":    account,
+		})
+	})
+
 	api.Get("/qr", func(c *fiber.Ctx) error {
 		user, _, err := currentTenant(c)
 		if err != nil {

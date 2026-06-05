@@ -1350,6 +1350,44 @@ textarea { min-height: 80px; }
   color: #111111;
   margin-top: 8px;
 }
+
+.form-divider {
+  height: 1px;
+  background: rgba(17, 27, 33, 0.08);
+  margin: 16px 0;
+}
+
+.pair-code-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 14px;
+  background: rgba(16, 185, 129, 0.08);
+  color: #020617;
+}
+
+.pair-code-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.pair-code-value {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 640px) {
+  .pair-code-box {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .hint {
   font-size: 12px;
   color: #111111;
