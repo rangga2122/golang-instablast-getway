@@ -975,27 +975,36 @@ func (m *Manager) accountInfoLocked(session *Session) AccountInfo {
 		LastConnectedAt:   session.lastConnectedAt,
 		ReconnectFailures: session.consecutiveReconnectFail,
 	}
-	if session.client != nil {
-		info.Connected = session.client.IsConnected()
-		info.LoggedIn = session.client.IsLoggedIn()
-		switch {
-		case info.Connected && info.LoggedIn:
-			info.Status = "Online"
-		case info.LoggedIn:
-			info.Status = "Koneksi bermasalah"
-		case info.Connected:
-			info.Status = "Terhubung"
-		case info.IsPending:
-			info.Status = "Siap scan QR"
-		default:
-			info.Status = "Offline"
-		}
-	}
+
 	if session.client != nil && session.client.Store != nil && session.client.Store.ID != nil {
+		info.LoggedIn = true
 		info.Phone = session.client.Store.ID.User
 		if info.JID == "" {
 			info.JID = session.client.Store.ID.String()
 		}
+	} else if info.JID != "" {
+		info.LoggedIn = true
+		info.Phone = strings.Split(info.JID, "@")[0]
+	}
+
+	if session.client != nil {
+		info.Connected = session.client.IsConnected() && info.LoggedIn
+	}
+	if session.healthy && info.LoggedIn {
+		info.Connected = true
+	}
+
+	switch {
+	case info.Connected && info.LoggedIn:
+		info.Status = "Online"
+	case info.LoggedIn:
+		info.Status = "Koneksi bermasalah"
+	case !info.IsPending && info.JID == "":
+		info.Status = "Offline"
+	case info.IsPending:
+		info.Status = "Siap scan QR"
+	default:
+		info.Status = "Offline"
 	}
 	return info
 }
