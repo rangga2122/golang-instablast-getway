@@ -1586,13 +1586,13 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			})
 		}
 		if account.LoggedIn && !account.Connected {
-			go func(targetAccountID string) {
-				connectCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				if err := whatsapp.EnsureClientConnectedForAccountForUser(connectCtx, user.ID, targetAccountID); err != nil {
-					logrus.WithError(err).WithField("account_id", targetAccountID).Debug("WhatsApp status background reconnect skipped")
-				}
-			}(account.ID)
+			connectCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			if err := whatsapp.EnsureClientConnectedForAccountForUser(connectCtx, user.ID, account.ID); err != nil {
+				logrus.WithError(err).WithField("account_id", account.ID).Debug("WhatsApp status reconnect skipped")
+			} else if refreshed, refreshErr := whatsapp.GetAccountForUser(user.ID, account.ID); refreshErr == nil {
+				account = refreshed
+			}
+			cancel()
 		}
 		return c.JSON(fiber.Map{
 			"connected":         account.Connected && account.LoggedIn,

@@ -58,6 +58,7 @@ type AccountInfo struct {
 	LoggedIn          bool      `json:"logged_in"`
 	Active            bool      `json:"active"`
 	Status            string    `json:"status"`
+	StatusReason      string    `json:"status_reason,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	IsPending         bool      `json:"is_pending"`
 	Phone             string    `json:"phone"`
@@ -66,6 +67,7 @@ type AccountInfo struct {
 	WebhookSecret     string    `json:"webhook_secret,omitempty"`
 	LastConnectedAt   time.Time `json:"last_connected_at,omitempty"`
 	ReconnectFailures int       `json:"reconnect_failures"`
+	NextReconnectAt   time.Time `json:"next_reconnect_at,omitempty"`
 }
 
 type Session struct {
@@ -83,6 +85,7 @@ type Session struct {
 	autoReconnectBlockedTill time.Time
 	supervisorReconnectRun   bool
 	lastConnectedAt          time.Time
+	lastDisconnectReason     string
 }
 
 type Manager struct {
@@ -217,6 +220,7 @@ func (m *Manager) onEvent(accountID string, evt interface{}, client *whatsmeow.C
 			go m.sendPresenceAvailable(client)
 		case *events.PairSuccess:
 			session.healthy = false
+			session.lastDisconnectReason = "Menunggu reconnect setelah pairing"
 			session.unhealthySince = time.Time{}
 			session.nextReconnectAt = time.Time{}
 			session.consecutiveReconnectFail = 0
@@ -224,28 +228,36 @@ func (m *Manager) onEvent(accountID string, evt interface{}, client *whatsmeow.C
 			session.autoReconnectBlockedTill = time.Time{}
 			reconnectAfterPair = true
 		case *events.PairError:
+			session.lastDisconnectReason = "Pairing gagal"
 			m.markSessionUnhealthyLocked(session)
 		case *events.KeepAliveRestored:
 			m.markSessionHealthyLocked(session)
 		case *events.KeepAliveTimeout:
 			if event.ErrorCount >= 2 {
+				session.lastDisconnectReason = fmt.Sprintf("Keepalive timeout (%d)", event.ErrorCount)
 				m.markSessionUnhealthyLocked(session)
 			}
 		case *events.Disconnected, *events.StreamError:
+			session.lastDisconnectReason = fmt.Sprintf("%T", evt)
 			m.markSessionUnhealthyLocked(session)
 		case *events.LoggedOut:
+			session.lastDisconnectReason = "WhatsApp logout/device dilepas"
 			m.markSessionUnhealthyLocked(session)
 			session.autoReconnectBlocked = true
 		case *events.StreamReplaced:
+			session.lastDisconnectReason = "Session dipakai di koneksi lain"
 			m.markSessionUnhealthyLocked(session)
 			session.autoReconnectBlocked = true
 		case *events.TemporaryBan:
+			session.lastDisconnectReason = fmt.Sprintf("Temporary ban %s", event.Expire)
 			m.markSessionUnhealthyLocked(session)
 			session.autoReconnectBlockedTill = time.Now().Add(event.Expire)
 		case *events.ClientOutdated, *events.CATRefreshError:
+			session.lastDisconnectReason = fmt.Sprintf("%T", evt)
 			m.markSessionUnhealthyLocked(session)
 			session.autoReconnectBlocked = true
 		case *events.ConnectFailure:
+			session.lastDisconnectReason = fmt.Sprintf("Connect failure %d %s", int(event.Reason), event.Message)
 			m.markSessionUnhealthyLocked(session)
 			if event.Reason.IsLoggedOut() {
 				session.autoReconnectBlocked = true
@@ -534,12 +546,12 @@ func (m *Manager) Connect(ctx context.Context, accountID string) error {
 		return nil
 	}
 	if err != nil {
-		m.recordReconnectFailure(accountID)
+		m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Connect gagal: %v", err))
 		return err
 	}
 	if session.client.Store != nil && session.client.Store.ID != nil {
 		if waitErr := m.waitUntilReady(ctx, accountID, session.client); waitErr != nil {
-			m.recordReconnectFailure(accountID)
+			m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Menunggu WhatsApp siap timeout: %v", waitErr))
 			return waitErr
 		}
 	}
@@ -743,7 +755,7 @@ func (m *Manager) Reconnect(ctx context.Context, accountID string) error {
 	}
 
 	if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
-		m.recordReconnectFailure(accountID)
+		m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Reconnect gagal: %v", err))
 		return err
 	}
 	if session.client.Store == nil || session.client.Store.ID == nil {
@@ -751,7 +763,7 @@ func (m *Manager) Reconnect(ctx context.Context, accountID string) error {
 	}
 	err := m.waitUntilReady(ctx, accountID, session.client)
 	if err != nil {
-		m.recordReconnectFailure(accountID)
+		m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Reconnect menunggu WhatsApp siap timeout: %v", err))
 	}
 	return err
 }
@@ -773,15 +785,20 @@ func (m *Manager) EnsureConnected(ctx context.Context, accountID string) (*whats
 	}
 
 	m.setHealthy(accountID, false)
+	m.mu.Lock()
+	if current := m.sessions[m.resolveLocked(accountID)]; current != nil {
+		current.lastDisconnectReason = "Mencoba reconnect"
+	}
+	m.mu.Unlock()
 	if session.client.IsConnected() {
 		session.client.Disconnect()
 	}
 	if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
-		m.recordReconnectFailure(accountID)
+		m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Ensure connect gagal: %v", err))
 		return nil, err
 	}
 	if err := m.waitUntilReady(ctx, accountID, session.client); err != nil {
-		m.recordReconnectFailure(accountID)
+		m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Ensure menunggu WhatsApp siap timeout: %v", err))
 		return nil, err
 	}
 	return session.client, nil
@@ -848,6 +865,7 @@ func (m *Manager) markSessionHealthyLocked(session *Session) {
 	session.consecutiveReconnectFail = 0
 	session.autoReconnectBlocked = false
 	session.autoReconnectBlockedTill = time.Time{}
+	session.lastDisconnectReason = ""
 }
 
 func (m *Manager) markSessionUnhealthyLocked(session *Session) {
@@ -870,6 +888,10 @@ func (m *Manager) clearReconnectBlock(accountID string) {
 }
 
 func (m *Manager) recordReconnectFailure(accountID string) {
+	m.recordReconnectFailureWithReason(accountID, "")
+}
+
+func (m *Manager) recordReconnectFailureWithReason(accountID, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	session := m.sessions[m.resolveLocked(accountID)]
@@ -878,6 +900,9 @@ func (m *Manager) recordReconnectFailure(accountID string) {
 	}
 	session.consecutiveReconnectFail++
 	session.nextReconnectAt = time.Now().Add(reconnectBackoff(session.consecutiveReconnectFail))
+	if strings.TrimSpace(reason) != "" {
+		session.lastDisconnectReason = reason
+	}
 }
 
 func reconnectBackoff(failures int) time.Duration {
@@ -986,6 +1011,8 @@ func (m *Manager) accountInfoLocked(session *Session) AccountInfo {
 		WebhookSecret:     session.meta.WebhookSecret,
 		LastConnectedAt:   session.lastConnectedAt,
 		ReconnectFailures: session.consecutiveReconnectFail,
+		NextReconnectAt:   session.nextReconnectAt,
+		StatusReason:      session.lastDisconnectReason,
 	}
 
 	if session.client != nil && session.client.Store != nil && session.client.Store.ID != nil {
