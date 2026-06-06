@@ -76,6 +76,7 @@ func initManagerWithContainerLocked(ctx context.Context, userID string, containe
 	if err != nil {
 		return nil, err
 	}
+	mgr.SetOwnerID(userID)
 	managers[userID] = mgr
 	if userID == "" {
 		manager = mgr

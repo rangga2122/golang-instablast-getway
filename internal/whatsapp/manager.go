@@ -24,7 +24,7 @@ const (
 	accountMetaPrefKey   = "wa_accounts_meta"
 	activeAccountPrefKey = "wa_active_account_id"
 
-	connectionSupervisorInterval       = 5 * time.Second
+	connectionSupervisorInterval       = 15 * time.Second
 	connectionSupervisorTimeout        = 25 * time.Second
 	connectionSupervisorUnhealthyGrace = 90 * time.Second
 	connectionHealthyGrace             = 2 * time.Minute
@@ -91,6 +91,7 @@ type Session struct {
 }
 
 type Manager struct {
+	ownerID          string
 	mu               sync.RWMutex
 	container        *sqlstore.Container
 	prefs            PreferenceStore
@@ -115,6 +116,23 @@ func NewManager(ctx context.Context, container *sqlstore.Container, prefs Prefer
 	m.supervisorCancel = cancel
 	go m.connectionSupervisor(supervisorCtx)
 	return m, nil
+}
+
+func (m *Manager) SetOwnerID(ownerID string) {
+	m.mu.Lock()
+	m.ownerID = strings.TrimSpace(ownerID)
+	m.mu.Unlock()
+}
+
+func (m *Manager) log() *logrus.Entry {
+	m.mu.RLock()
+	ownerID := m.ownerID
+	m.mu.RUnlock()
+	entry := logrus.WithField("manager_id", ownerID)
+	if ownerID == "" {
+		entry = logrus.WithField("manager_id", "default")
+	}
+	return entry
 }
 
 func configureClientIdentity() {
@@ -1003,10 +1021,21 @@ func (m *Manager) superviseConnection(ctx context.Context, accountID string) {
 	_, err := m.EnsureConnected(connectCtx, accountID)
 	cancel()
 	if err != nil {
-		logrus.WithError(err).WithField("account_id", accountID).Warn("WhatsApp connection supervisor reconnect failed")
+		m.log().WithError(err).WithField("account_id", accountID).Warn("WhatsApp connection supervisor reconnect failed")
 		return
 	}
-	logrus.WithField("account_id", accountID).Info("WhatsApp connection supervisor restored session")
+
+	// If WhatsApp keeps dropping a socket shortly after reconnect, hammering
+	// ConnectContext every few seconds makes sends less stable and looks
+	// "Online" in the UI while the stream is constantly being replaced. After a
+	// supervisor reconnect, give the socket a cooldown. On-demand sends still call
+	// EnsureConnected themselves, so broadcasts are not blocked by this cooldown.
+	m.mu.Lock()
+	if current := m.sessions[accountID]; current != nil {
+		current.nextReconnectAt = time.Now().Add(60 * time.Second)
+	}
+	m.mu.Unlock()
+	m.log().WithField("account_id", accountID).Info("WhatsApp connection supervisor restored session")
 }
 
 func (m *Manager) resolveLocked(accountID string) string {
