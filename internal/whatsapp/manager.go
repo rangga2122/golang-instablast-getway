@@ -15,7 +15,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waCompanionReg"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
-	waTypes "go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
@@ -24,7 +23,7 @@ const (
 	accountMetaPrefKey   = "wa_accounts_meta"
 	activeAccountPrefKey = "wa_active_account_id"
 
-	connectionSupervisorInterval       = 15 * time.Second
+	connectionSupervisorInterval       = 5 * time.Minute
 	connectionSupervisorTimeout        = 25 * time.Second
 	connectionSupervisorUnhealthyGrace = 90 * time.Second
 	connectionHealthyGrace             = 2 * time.Minute
@@ -221,7 +220,8 @@ func (m *Manager) newClient(session *Session) *whatsmeow.Client {
 	clientLog := waLog.Stdout("Client", config.WhatsappLogLevel, true)
 	client := whatsmeow.NewClient(session.device, clientLog)
 	client.EnableAutoReconnect = true
-	client.InitialAutoReconnect = session.device != nil && session.device.ID != nil
+	client.AutoTrustIdentity = true
+	client.InitialAutoReconnect = false
 	client.AddEventHandler(func(evt interface{}) {
 		m.onEvent(session.meta.ID, evt, client)
 	})
@@ -237,7 +237,6 @@ func (m *Manager) onEvent(accountID string, evt interface{}, client *whatsmeow.C
 		case *events.Connected:
 			m.markSessionHealthyLocked(session)
 			session.lastConnectedAt = time.Now()
-			go m.sendPresenceAvailable(client)
 		case *events.PairSuccess:
 			session.healthy = false
 			session.lastDisconnectReason = "Menunggu reconnect setelah pairing"
@@ -317,16 +316,6 @@ func (m *Manager) reconnectAfterPair(accountID string) {
 	logrus.WithField("account_id", accountID).Info("WhatsApp session reconnected after QR pairing")
 }
 
-func (m *Manager) sendPresenceAvailable(client *whatsmeow.Client) {
-	if client == nil || !client.IsConnected() || !client.IsLoggedIn() {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := client.SendPresence(ctx, waTypes.PresenceAvailable); err != nil {
-		logrus.WithError(err).Debug("failed to send WhatsApp available presence")
-	}
-}
 
 func (m *Manager) saveStateLocked() {
 	if m.prefs == nil {
