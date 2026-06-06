@@ -425,6 +425,7 @@ func SendMessageForUserAccount(ctx context.Context, userID, accountID string, ji
 	if err != nil {
 		return fmt.Errorf("WhatsApp connection unavailable: %w", err)
 	}
+	disableLIDMigrationForSend(client)
 
 	sendCtx, sendCancel := sendOperationContext(ctx)
 	messageID := client.GenerateMessageID()
@@ -445,6 +446,7 @@ func SendMessageForUserAccount(ctx context.Context, userID, accountID string, ji
 	if retryClientErr != nil {
 		return fmt.Errorf("send failed (%v), reconnect verification failed: %w", err, retryClientErr)
 	}
+	disableLIDMigrationForSend(retryClient)
 
 	retryCtx, retryCancel := sendOperationContext(ctx)
 	_, retryErr := retryClient.SendMessage(retryCtx, jid, msg, whatsmeow.SendRequestExtra{ID: messageID})
@@ -453,6 +455,17 @@ func SendMessageForUserAccount(ctx context.Context, userID, accountID string, ji
 		return fmt.Errorf("send failed after reconnect: %w", retryErr)
 	}
 	return nil
+}
+
+func disableLIDMigrationForSend(client *whatsmeow.Client) {
+	if client == nil || client.Store == nil || client.Store.LIDMigrationTimestamp == 0 {
+		return
+	}
+	// Avoid the fragile pre-send LID usync lookup for phone-number JIDs. In
+	// production WhatsApp repeatedly closes the websocket during that query,
+	// while direct PN sends can proceed and the normal retry still handles stale
+	// sockets.
+	client.Store.LIDMigrationTimestamp = 0
 }
 
 func SendImage(ctx context.Context, jid types.JID, imageBytes []byte, mimetype string, caption string) error {
