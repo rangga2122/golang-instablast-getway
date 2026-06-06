@@ -24,9 +24,10 @@ const (
 	accountMetaPrefKey   = "wa_accounts_meta"
 	activeAccountPrefKey = "wa_active_account_id"
 
-	connectionSupervisorInterval       = 30 * time.Second
+	connectionSupervisorInterval       = 5 * time.Second
 	connectionSupervisorTimeout        = 25 * time.Second
 	connectionSupervisorUnhealthyGrace = 90 * time.Second
+	connectionHealthyGrace             = 2 * time.Minute
 	connectionReconnectBackoffMin      = 15 * time.Second
 	connectionReconnectBackoffMax      = 10 * time.Minute
 )
@@ -85,6 +86,7 @@ type Session struct {
 	autoReconnectBlockedTill time.Time
 	supervisorReconnectRun   bool
 	lastConnectedAt          time.Time
+	lastHealthyAt            time.Time
 	lastDisconnectReason     string
 }
 
@@ -239,7 +241,9 @@ func (m *Manager) onEvent(accountID string, evt interface{}, client *whatsmeow.C
 			}
 		case *events.Disconnected, *events.StreamError:
 			session.lastDisconnectReason = fmt.Sprintf("%T", evt)
-			m.markSessionUnhealthyLocked(session)
+			if session.lastHealthyAt.IsZero() || time.Since(session.lastHealthyAt) > connectionHealthyGrace {
+				m.markSessionUnhealthyLocked(session)
+			}
 		case *events.LoggedOut:
 			session.lastDisconnectReason = "WhatsApp logout/device dilepas"
 			m.markSessionUnhealthyLocked(session)
@@ -859,7 +863,9 @@ func (m *Manager) waitUntilReady(ctx context.Context, accountID string, client *
 }
 
 func (m *Manager) markSessionHealthyLocked(session *Session) {
+	now := time.Now()
 	session.healthy = true
+	session.lastHealthyAt = now
 	session.unhealthySince = time.Time{}
 	session.nextReconnectAt = time.Time{}
 	session.consecutiveReconnectFail = 0
@@ -1030,6 +1036,9 @@ func (m *Manager) accountInfoLocked(session *Session) AccountInfo {
 		info.Connected = session.client.IsConnected() && info.LoggedIn
 	}
 	if session.healthy && info.LoggedIn {
+		info.Connected = true
+	}
+	if !info.Connected && info.LoggedIn && !session.lastHealthyAt.IsZero() && time.Since(session.lastHealthyAt) <= connectionHealthyGrace {
 		info.Connected = true
 	}
 

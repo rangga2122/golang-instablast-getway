@@ -571,13 +571,10 @@ func connectionContext(ctx context.Context) (context.Context, context.CancelFunc
 }
 
 func sendOperationContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if ctx == nil || errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		ctx = context.Background()
-	}
-	if _, ok := ctx.Deadline(); ok {
-		return context.WithCancel(ctx)
-	}
-	return context.WithTimeout(ctx, 45*time.Second)
+	// Sending may happen after the HTTP request that started a broadcast has
+	// returned. Do not inherit request cancellation here; it causes whatsmeow
+	// writes/usync locks to fail mid-send with context canceled.
+	return context.WithTimeout(context.Background(), 60*time.Second)
 }
 
 func isRetryableSendError(err error) bool {
