@@ -600,6 +600,12 @@ func isRetryableSendError(err error) bool {
 	if errors.Is(err, whatsmeow.ErrNotConnected) || errors.Is(err, whatsmeow.ErrMessageTimedOut) {
 		return true
 	}
+	errText := strings.ToLower(err.Error())
+	if strings.Contains(errText, "use of closed network connection") ||
+		strings.Contains(errText, "websocket disconnected") ||
+		strings.Contains(errText, "server returned error 400") {
+		return true
+	}
 	var disconnectedErr *whatsmeow.DisconnectedError
 	if errors.As(err, &disconnectedErr) {
 		return true

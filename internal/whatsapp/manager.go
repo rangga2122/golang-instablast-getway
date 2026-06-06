@@ -986,6 +986,19 @@ func (m *Manager) superviseConnection(ctx context.Context, accountID string) {
 		m.mu.Unlock()
 	}()
 
+	session := m.getSession(accountID)
+	if session == nil {
+		return
+	}
+
+	// Do not reconnect/disconnect the socket while a broadcast/direct send is in
+	// progress. EnsureConnected may call Disconnect() before ConnectContext(); if
+	// the supervisor does that concurrently with SendMessage, WhatsApp can reject
+	// the write with intermittent server 400 / closed websocket errors even while
+	// the UI still reports Online.
+	session.sendMu.Lock()
+	defer session.sendMu.Unlock()
+
 	connectCtx, cancel := context.WithTimeout(ctx, connectionSupervisorTimeout)
 	_, err := m.EnsureConnected(connectCtx, accountID)
 	cancel()
