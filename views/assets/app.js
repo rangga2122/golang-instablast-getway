@@ -3868,13 +3868,6 @@ async function clearChatHistory() {
 }
 
 // ===== InstaBlast AI =====
-
-function syncAIProviderFields() {
-  const provider = $('aiProvider')?.value || 'default';
-  const localBox = $('aiLocalHFInfo');
-  if (localBox) localBox.style.display = provider === 'local_hf' ? 'block' : 'none';
-}
-
 async function loadAISettings() {
   try {
     const data = await api('/ai/settings');
@@ -3882,8 +3875,6 @@ async function loadAISettings() {
     aiKnowledgeProducts = normalizeAIKnowledgeProducts(data.products);
     aiAccountProductIDs = normalizeAIAccountProductMap(data.account_product_ids);
     if ($('aiEnabled')) $('aiEnabled').checked = !!data.enabled;
-    if ($('aiProvider')) $('aiProvider').value = data.provider || 'default';
-    syncAIProviderFields();
     if ($('aiOcrEnabled')) $('aiOcrEnabled').checked = data.vision_enabled !== false;
     if ($('aiSystemOngkirEnabled')) $('aiSystemOngkirEnabled').checked = !!data.system_ongkir_enabled;
     if ($('aiSystemOngkirOrigin')) $('aiSystemOngkirOrigin').value = data.system_ongkir_origin || '';
@@ -3899,7 +3890,7 @@ async function loadAISettings() {
     renderAIAccountPicker();
     renderAIKnowledgeList();
     renderAIKnowledgeImagePreview();
-    ['aiEnabled', 'aiProvider', 'aiOcrEnabled', 'aiSystemOngkirEnabled', 'aiSystemOngkirOrigin', 'aiRajaOngkirEnabled', 'aiRajaOngkirApiKey', 'aiRajaOngkirOrigin', 'aiInstruction', 'aiProductInfo', 'aiDelayMs', 'aiMaxHistory', 'aiBatchWindowMs', 'aiKnowledgeName', 'aiKnowledgeContent', 'aiKnowledgeImageInput', 'aiKnowledgeSelect', 'aiKnowledgeAccountSelect']
+    ['aiEnabled', 'aiOcrEnabled', 'aiSystemOngkirEnabled', 'aiSystemOngkirOrigin', 'aiRajaOngkirEnabled', 'aiRajaOngkirApiKey', 'aiRajaOngkirOrigin', 'aiInstruction', 'aiProductInfo', 'aiDelayMs', 'aiMaxHistory', 'aiBatchWindowMs', 'aiKnowledgeName', 'aiKnowledgeContent', 'aiKnowledgeImageInput', 'aiKnowledgeSelect', 'aiKnowledgeAccountSelect']
       .forEach(id => { if ($(id)) $(id).disabled = !!data.locked; });
     document.querySelectorAll('#tab-ai .btn').forEach(btn => btn.disabled = !!data.locked);
     if (data.locked && $('aiEnabled')) $('aiEnabled').checked = false;
@@ -3927,7 +3918,6 @@ async function saveAISettings(skipSuccessToast = false) {
 
   const body = {
     enabled,
-    provider: $('aiProvider')?.value || 'default',
     vision_enabled: $('aiOcrEnabled')?.checked !== false,
     system_ongkir_enabled: $('aiSystemOngkirEnabled')?.checked || false,
     system_ongkir_origin: $('aiSystemOngkirOrigin')?.value?.trim() || '',
@@ -3959,8 +3949,6 @@ async function saveAISettings(skipSuccessToast = false) {
     });
 
     if ($('aiEnabled')) $('aiEnabled').checked = !!data.enabled;
-    if ($('aiProvider')) $('aiProvider').value = data.provider || body.provider || 'default';
-    syncAIProviderFields();
     if ($('aiSystemOngkirEnabled')) $('aiSystemOngkirEnabled').checked = !!data.system_ongkir_enabled;
     if ($('aiSystemOngkirOrigin')) $('aiSystemOngkirOrigin').value = data.system_ongkir_origin || body.system_ongkir_origin;
     if ($('aiRajaOngkirEnabled')) $('aiRajaOngkirEnabled').checked = !!data.rajaongkir_enabled;
@@ -4914,7 +4902,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   $('aiSystemOngkirEnabled')?.addEventListener('change', handleAISystemOngkirToggle);
-  $('aiProvider')?.addEventListener('change', syncAIProviderFields);
   $('aiRajaOngkirEnabled')?.addEventListener('change', handleAIRajaOngkirToggle);
   $('broadcastRandomDelay')?.addEventListener('change', () => {
     $('broadcastRandomDelayRow').style.display = $('broadcastRandomDelay').checked ? 'block' : 'none';

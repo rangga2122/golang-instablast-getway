@@ -2792,7 +2792,6 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		}
 		return c.JSON(fiber.Map{
 			"enabled":               settings.Enabled,
-			"provider":              settings.Provider,
 			"api_key":               settings.APIKey,
 			"instruction":           settings.Instruction,
 			"product_info":          settings.ProductInfo,
