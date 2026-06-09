@@ -31,6 +31,11 @@ import (
 
 const (
 	SettingsPrefKey      = "ai_settings"
+	ProviderDefault      = "default"
+	ProviderLocalHF      = "local_hf"
+	localHFEndpoint      = "https://digital423-local-llm.hf.space/v1/chat/completions"
+	localHFModel         = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+	localHFApiKey        = "dummy"
 	defaultDelayMs       = 10000
 	defaultMaxHistory    = 15
 	defaultBatchWindowMs = 4500
@@ -69,6 +74,7 @@ type LoggerFunc func(msg, level string)
 
 type Settings struct {
 	Enabled             bool                `json:"enabled"`
+	Provider            string              `json:"provider"`
 	APIKey              string              `json:"api_key"`
 	Instruction         string              `json:"instruction"`
 	ProductInfo         string              `json:"product_info"`
@@ -238,6 +244,7 @@ func (s *Service) SetAssetDir(dir string) {
 func defaultSettings() Settings {
 	return mergeDesktopDefaults(Settings{
 		Enabled:           false,
+		Provider:          ProviderDefault,
 		DelayMs:           defaultDelayMs,
 		MaxHistory:        defaultMaxHistory,
 		BatchWindowMs:     defaultBatchWindowMs,
@@ -249,7 +256,12 @@ func defaultSettings() Settings {
 }
 
 func sanitizeSettings(s Settings) Settings {
-	s.APIKey = normalizeAPIKey(s.APIKey)
+	s.Provider = normalizeProvider(s.Provider)
+	if s.Provider == ProviderLocalHF {
+		s.APIKey = strings.TrimSpace(s.APIKey)
+	} else {
+		s.APIKey = normalizeAPIKey(s.APIKey)
+	}
 	s.Instruction = strings.TrimSpace(s.Instruction)
 	s.ProductInfo = strings.TrimSpace(s.ProductInfo)
 	s.RajaOngkirAPIKey = strings.TrimSpace(s.RajaOngkirAPIKey)
@@ -759,7 +771,7 @@ func (s *Service) generateReply(ctx context.Context, settings Settings, accountI
 		"role":    "user",
 		"content": userText,
 	})
-	return s.doNvidiaChatCompletion(ctx, apiKey, messages)
+	return s.doChatCompletion(ctx, settings, apiKey, messages)
 }
 
 func (s *Service) generateReplyFromParts(ctx context.Context, settings Settings, accountID string, history []chatTurn, parts []pendingPart) (string, error) {
@@ -779,6 +791,83 @@ func (s *Service) generateReplyFromParts(ctx context.Context, settings Settings,
 		userText = "Ringkas dan jawab gabungan beberapa pesan berikut:\n- " + strings.Join(userSegments, "\n- ")
 	}
 	return s.generateReply(ctx, settings, accountID, history, userText)
+}
+
+func (s *Service) doChatCompletion(ctx context.Context, settings Settings, apiKey string, messages []map[string]interface{}) (string, error) {
+	if normalizeProvider(settings.Provider) == ProviderLocalHF {
+		maxTokens := config.WhatsappAIMaxTokens
+		if maxTokens > 192 {
+			maxTokens = 192
+		}
+		key := firstNonEmpty(strings.TrimSpace(apiKey), localHFApiKey)
+		return s.doOpenAIChatCompletion(ctx, localHFEndpoint, localHFModel, key, maxTokens, messages)
+	}
+	return s.doNvidiaChatCompletion(ctx, apiKey, messages)
+}
+
+func (s *Service) doOpenAIChatCompletion(ctx context.Context, endpoint, model, apiKey string, maxTokens int, messages []map[string]interface{}) (string, error) {
+	if maxTokens <= 0 {
+		maxTokens = config.WhatsappAIMaxTokens
+	}
+	payload := map[string]interface{}{
+		"model":       model,
+		"messages":    messages,
+		"max_tokens":  maxTokens,
+		"temperature": 0.7,
+		"top_p":       1.0,
+		"stream":      false,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	reqCtx := ctx
+	if reqCtx == nil {
+		reqCtx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(reqCtx, time.Duration(config.WhatsappAIRequestTimeoutSec)*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	if strings.TrimSpace(apiKey) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("ai api status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var parsed struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
+		return "", err
+	}
+	if len(parsed.Choices) == 0 {
+		return "", fmt.Errorf("respons AI tidak memiliki choices")
+	}
+	return parsed.Choices[0].Message.Content, nil
 }
 
 func (s *Service) doNvidiaChatCompletion(ctx context.Context, apiKey string, messages []map[string]interface{}) (string, error) {
@@ -2268,6 +2357,15 @@ func accountAllowed(accountID string, allowed []string) bool {
 	return false
 }
 
+func normalizeProvider(provider string) string {
+	switch strings.TrimSpace(strings.ToLower(provider)) {
+	case ProviderLocalHF:
+		return ProviderLocalHF
+	default:
+		return ProviderDefault
+	}
+}
+
 func normalizeAPIKey(apiKey string) string {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
@@ -2284,6 +2382,9 @@ func normalizeAPIKey(apiKey string) string {
 }
 
 func effectiveAPIKey(settings Settings) string {
+	if normalizeProvider(settings.Provider) == ProviderLocalHF {
+		return firstNonEmpty(settings.APIKey, localHFApiKey)
+	}
 	if apiKey := normalizeAPIKey(settings.APIKey); apiKey != "" {
 		return apiKey
 	}
