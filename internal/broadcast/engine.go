@@ -374,27 +374,21 @@ func (e *Engine) forceReconnectAfterFailure(ctx context.Context, ownerID, accoun
 }
 
 // sendWithRetry tries to send a message up to sendRetries+1 times.
-// Between retries it forces a full reconnect (not just a health check) and
-// waits for the connection to stabilise before the next attempt.
+// The whatsapp send path already serializes sends and performs a reconnect on
+// retryable send failures. Avoid doing an additional forced reconnect here: it
+// can tear down the websocket around whatsmeow's pre-send usync/device-list
+// lock and produce "failed to acquire lock: context canceled" after QR pairing.
 func (e *Engine) sendWithRetry(ctx context.Context, ownerID, accountID string, jid types.JID, mediaItems []MediaItem, msg string) error {
 	var lastErr error
 	for attempt := 0; attempt <= sendRetries; attempt++ {
 		if attempt > 0 {
-			// Exponential backoff: 5s, 10s
+			// Exponential backoff: 5s, 10s. Keep the socket stable between
+			// attempts; SendMessageForUserAccount handles reconnect internally.
 			backoff := time.Duration(attempt*5) * time.Second
-			e.log(fmt.Sprintf("Percobaan ulang ke-%d untuk %s — force reconnect + tunggu %ds…", attempt, jid.User, int(backoff.Seconds())), "info")
+			e.log(fmt.Sprintf("Percobaan ulang ke-%d untuk %s — tunggu %ds…", attempt, jid.User, int(backoff.Seconds())), "info")
 			if interrupted := e.contextSleep(ctx, backoff); interrupted {
 				return fmt.Errorf("broadcast dibatalkan saat retry")
 			}
-			// Always force reconnect after a transient failure — don't trust
-			// IsConnected() because after QR re-pairing it can be stale.
-			reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 60*time.Second)
-			if err := e.forceReconnectAfterFailure(reconnCtx, ownerID, accountID); err != nil {
-				reconnCancel()
-				lastErr = fmt.Errorf("reconnect gagal sebelum retry: %w", err)
-				continue
-			}
-			reconnCancel()
 		}
 		lastErr = sendMediaAndMessage(ctx, ownerID, accountID, jid, mediaItems, msg)
 		if lastErr == nil {
@@ -447,11 +441,11 @@ func (e *Engine) runBroadcast(ctx context.Context, cfg Config) {
 		e.finish(cancelled)
 	}()
 
-	// Pre-flight: force a full reconnect to ensure a stable connection before
-	// starting.  A simple health check is unreliable after QR re-pairing
-	// because IsConnected() can be stale.
-	preCtx, preCancel := context.WithTimeout(context.Background(), 60*time.Second)
-	if err := e.forceReconnectAfterFailure(preCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+	// Pre-flight: ensure the account is connected, but do not force a reconnect
+	// when it already reports online. Tearing down a freshly paired session right
+	// before the first send can race with whatsmeow's usync/device-list lock.
+	preCtx, preCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	if err := e.ensureConnectionHealthy(preCtx, cfg.OwnerID, cfg.AccountID); err != nil {
 		preCancel()
 		e.log(fmt.Sprintf("Gagal memulai broadcast: koneksi WhatsApp tidak tersedia (%v)", err), "error")
 		return
@@ -569,9 +563,9 @@ func (e *Engine) runPersonalBroadcast(ctx context.Context, cfg PersonalConfig) {
 		e.finish(cancelled)
 	}()
 
-	// Pre-flight: force a full reconnect to ensure a stable connection.
-	preCtx, preCancel := context.WithTimeout(context.Background(), 60*time.Second)
-	if err := e.forceReconnectAfterFailure(preCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+	// Pre-flight: ensure connected without tearing down a freshly paired session.
+	preCtx, preCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	if err := e.ensureConnectionHealthy(preCtx, cfg.OwnerID, cfg.AccountID); err != nil {
 		preCancel()
 		e.log(fmt.Sprintf("Gagal memulai broadcast personalisasi: koneksi WhatsApp tidak tersedia (%v)", err), "error")
 		return
