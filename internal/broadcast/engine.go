@@ -357,20 +357,39 @@ func (e *Engine) ensureConnectionHealthy(ctx context.Context, ownerID, accountID
 	return whatsapp.EnsureClientConnectedForAccountForUser(ctx, ownerID, accountID)
 }
 
+// forceReconnectAfterFailure tears down and rebuilds the WhatsApp connection
+// unconditionally.  After QR re-pairing the client often reports IsConnected()
+// = true while the underlying websocket is already dead, so a health check
+// alone is not enough — we must force a full reconnect cycle with a
+// stabilisation delay.
+func (e *Engine) forceReconnectAfterFailure(ctx context.Context, ownerID, accountID string) error {
+	e.log("Force reconnect: memutuskan dan menyambungkan ulang koneksi WhatsApp…", "warning")
+	reconnCtx, reconnCancel := context.WithTimeout(ctx, 60*time.Second)
+	defer reconnCancel()
+	if err := whatsapp.ForceReconnectForAccountForUser(reconnCtx, ownerID, accountID); err != nil {
+		return fmt.Errorf("force reconnect gagal: %w", err)
+	}
+	e.log("Force reconnect: koneksi WhatsApp berhasil disambungkan ulang ✓", "info")
+	return nil
+}
+
 // sendWithRetry tries to send a message up to sendRetries+1 times.
-// Between retries it waits with exponential backoff and attempts a reconnect.
+// Between retries it forces a full reconnect (not just a health check) and
+// waits for the connection to stabilise before the next attempt.
 func (e *Engine) sendWithRetry(ctx context.Context, ownerID, accountID string, jid types.JID, mediaItems []MediaItem, msg string) error {
 	var lastErr error
 	for attempt := 0; attempt <= sendRetries; attempt++ {
 		if attempt > 0 {
-			backoff := time.Duration(attempt*3) * time.Second
-			e.log(fmt.Sprintf("Percobaan ulang ke-%d untuk %s (tunggu %ds)…", attempt, jid.User, int(backoff.Seconds())), "info")
+			// Exponential backoff: 5s, 10s
+			backoff := time.Duration(attempt*5) * time.Second
+			e.log(fmt.Sprintf("Percobaan ulang ke-%d untuk %s — force reconnect + tunggu %ds…", attempt, jid.User, int(backoff.Seconds())), "info")
 			if interrupted := e.contextSleep(ctx, backoff); interrupted {
 				return fmt.Errorf("broadcast dibatalkan saat retry")
 			}
-			// Try to restore connection before retrying
-			reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 45*time.Second)
-			if err := e.ensureConnectionHealthy(reconnCtx, ownerID, accountID); err != nil {
+			// Always force reconnect after a transient failure — don't trust
+			// IsConnected() because after QR re-pairing it can be stale.
+			reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 60*time.Second)
+			if err := e.forceReconnectAfterFailure(reconnCtx, ownerID, accountID); err != nil {
 				reconnCancel()
 				lastErr = fmt.Errorf("reconnect gagal sebelum retry: %w", err)
 				continue
@@ -382,7 +401,7 @@ func (e *Engine) sendWithRetry(ctx context.Context, ownerID, accountID string, j
 			return nil
 		}
 		errLower := strings.ToLower(lastErr.Error())
-		// Only retry on transient errors
+		// Only retry on transient / connection errors
 		isTransient := strings.Contains(errLower, "not connected") ||
 			strings.Contains(errLower, "connection") ||
 			strings.Contains(errLower, "timeout") ||
@@ -392,7 +411,10 @@ func (e *Engine) sendWithRetry(ctx context.Context, ownerID, accountID string, j
 			strings.Contains(errLower, "server returned error") ||
 			strings.Contains(errLower, "unavailable") ||
 			strings.Contains(errLower, "context canceled") ||
-			strings.Contains(errLower, "disconnected")
+			strings.Contains(errLower, "disconnected") ||
+			strings.Contains(errLower, "reconnect") ||
+			strings.Contains(errLower, "acquire lock") ||
+			strings.Contains(errLower, "usync")
 		if !isTransient {
 			return lastErr // permanent error, no point retrying
 		}
@@ -425,9 +447,11 @@ func (e *Engine) runBroadcast(ctx context.Context, cfg Config) {
 		e.finish(cancelled)
 	}()
 
-	// Pre-flight: make sure the connection is alive before we start
-	preCtx, preCancel := context.WithTimeout(context.Background(), 45*time.Second)
-	if err := e.ensureConnectionHealthy(preCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+	// Pre-flight: force a full reconnect to ensure a stable connection before
+	// starting.  A simple health check is unreliable after QR re-pairing
+	// because IsConnected() can be stale.
+	preCtx, preCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	if err := e.forceReconnectAfterFailure(preCtx, cfg.OwnerID, cfg.AccountID); err != nil {
 		preCancel()
 		e.log(fmt.Sprintf("Gagal memulai broadcast: koneksi WhatsApp tidak tersedia (%v)", err), "error")
 		return
@@ -475,22 +499,18 @@ func (e *Engine) runBroadcast(ctx context.Context, cfg Config) {
 			}
 		}
 
-		// Auto-reconnect after too many consecutive failures
+		// Auto-reconnect after too many consecutive failures — force full
+		// reconnect cycle with stabilisation, not just a health check.
 		if consecutiveFails >= maxConsecutiveFailures {
-			e.log(fmt.Sprintf("%d pengiriman berturut-turut gagal, mencoba reconnect…", consecutiveFails), "warning")
+			e.log(fmt.Sprintf("%d pengiriman berturut-turut gagal, force reconnect…", consecutiveFails), "warning")
 			reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 60*time.Second)
-			if err := whatsapp.EnsureClientConnectedForAccountForUser(reconnCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+			if err := e.forceReconnectAfterFailure(reconnCtx, cfg.OwnerID, cfg.AccountID); err != nil {
 				reconnCancel()
-				e.log(fmt.Sprintf("Reconnect gagal: %v — broadcast dilanjutkan", err), "error")
+				e.log(fmt.Sprintf("Force reconnect gagal: %v — broadcast dilanjutkan", err), "error")
 			} else {
 				reconnCancel()
-				e.log("Reconnect berhasil, melanjutkan broadcast", "info")
+				e.log("Force reconnect berhasil, melanjutkan broadcast", "info")
 				consecutiveFails = 0
-				// Small pause after reconnect to let things stabilize
-				if interrupted := e.contextSleep(ctx, 5*time.Second); interrupted {
-					cancelled = true
-					return
-				}
 			}
 		}
 
@@ -549,9 +569,9 @@ func (e *Engine) runPersonalBroadcast(ctx context.Context, cfg PersonalConfig) {
 		e.finish(cancelled)
 	}()
 
-	// Pre-flight: make sure the connection is alive before we start
-	preCtx, preCancel := context.WithTimeout(context.Background(), 45*time.Second)
-	if err := e.ensureConnectionHealthy(preCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+	// Pre-flight: force a full reconnect to ensure a stable connection.
+	preCtx, preCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	if err := e.forceReconnectAfterFailure(preCtx, cfg.OwnerID, cfg.AccountID); err != nil {
 		preCancel()
 		e.log(fmt.Sprintf("Gagal memulai broadcast personalisasi: koneksi WhatsApp tidak tersedia (%v)", err), "error")
 		return
@@ -602,21 +622,18 @@ func (e *Engine) runPersonalBroadcast(ctx context.Context, cfg PersonalConfig) {
 			}
 		}
 
-		// Auto-reconnect after too many consecutive failures
+		// Auto-reconnect after too many consecutive failures — force full
+		// reconnect cycle with stabilisation, not just a health check.
 		if consecutiveFails >= maxConsecutiveFailures {
-			e.log(fmt.Sprintf("%d pengiriman berturut-turut gagal, mencoba reconnect…", consecutiveFails), "warning")
+			e.log(fmt.Sprintf("%d pengiriman berturut-turut gagal, force reconnect…", consecutiveFails), "warning")
 			reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 60*time.Second)
-			if err := whatsapp.EnsureClientConnectedForAccountForUser(reconnCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+			if err := e.forceReconnectAfterFailure(reconnCtx, cfg.OwnerID, cfg.AccountID); err != nil {
 				reconnCancel()
-				e.log(fmt.Sprintf("Reconnect gagal: %v — broadcast dilanjutkan", err), "error")
+				e.log(fmt.Sprintf("Force reconnect gagal: %v — broadcast dilanjutkan", err), "error")
 			} else {
 				reconnCancel()
-				e.log("Reconnect berhasil, melanjutkan broadcast", "info")
+				e.log("Force reconnect berhasil, melanjutkan broadcast", "info")
 				consecutiveFails = 0
-				if interrupted := e.contextSleep(ctx, 5*time.Second); interrupted {
-					cancelled = true
-					return
-				}
 			}
 		}
 

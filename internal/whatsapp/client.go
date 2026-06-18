@@ -311,6 +311,49 @@ func EnsureClientConnectedForAccountForUser(ctx context.Context, userID, account
 	return err
 }
 
+// ForceReconnectForAccountForUser always tears down and rebuilds the WhatsApp
+// connection regardless of what IsConnected() reports.  This is needed after
+// QR re-pairing where the internal flag can be stale while the socket is
+// actually dead.  A stabilisation delay is included so the new connection has
+// time to finish the handshake before the caller attempts to send.
+func ForceReconnectForAccountForUser(ctx context.Context, userID, accountID string) error {
+	mgr := GetManagerForUser(userID)
+	if mgr == nil {
+		return fmt.Errorf("manager not initialized")
+	}
+	accountID = mgr.ResolveAccountID(accountID)
+	logrus.Infof("[WA] ForceReconnect: account=%s user=%s", accountID, userID)
+
+	connCtx, connCancel := connectionContext(ctx)
+	defer connCancel()
+
+	if err := mgr.Reconnect(connCtx, accountID); err != nil {
+		return fmt.Errorf("force reconnect failed: %w", err)
+	}
+
+	// Stabilisation delay: let the websocket handshake and session sync
+	// finish before the caller tries to send.
+	const stabiliseDelay = 8 * time.Second
+	logrus.Infof("[WA] ForceReconnect: waiting %ds for connection to stabilise…", int(stabiliseDelay.Seconds()))
+	timer := time.NewTimer(stabiliseDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+	}
+
+	// Verify the connection is actually up now.
+	verifyCtx, verifyCancel := connectionContext(ctx)
+	defer verifyCancel()
+	_, err := mgr.EnsureConnected(verifyCtx, accountID)
+	if err != nil {
+		return fmt.Errorf("force reconnect verification failed: %w", err)
+	}
+	logrus.Infof("[WA] ForceReconnect: account=%s is now connected and stable", accountID)
+	return nil
+}
+
 func GetClientJID() string {
 	return GetClientJIDForUser("")
 }
@@ -441,6 +484,18 @@ func SendMessageForUserAccount(ctx context.Context, userID, accountID string, ji
 	if reconnectErr != nil {
 		reconnectCancel()
 		return fmt.Errorf("send failed (%v), reconnect failed: %w", err, reconnectErr)
+	}
+	// Stabilisation delay: give the new websocket time to finish handshake
+	// before attempting to send.  Without this the connection flag flips to
+	// true while the socket is still negotiating and the send immediately
+	// fails with "closed network connection" or "context canceled".
+	stabiliseTimer := time.NewTimer(5 * time.Second)
+	select {
+	case <-reconnectCtx.Done():
+		stabiliseTimer.Stop()
+		reconnectCancel()
+		return fmt.Errorf("send failed (%v), reconnect cancelled during stabilisation: %w", err, reconnectCtx.Err())
+	case <-stabiliseTimer.C:
 	}
 	retryClient, retryClientErr := mgr.EnsureConnected(reconnectCtx, accountID)
 	reconnectCancel()

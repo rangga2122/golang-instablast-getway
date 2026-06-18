@@ -23,12 +23,12 @@ const (
 	accountMetaPrefKey   = "wa_accounts_meta"
 	activeAccountPrefKey = "wa_active_account_id"
 
-	connectionSupervisorInterval       = 3 * time.Minute
-	connectionSupervisorTimeout        = 30 * time.Second
+	connectionSupervisorInterval       = 2 * time.Minute
+	connectionSupervisorTimeout        = 35 * time.Second
 	connectionSupervisorUnhealthyGrace = 60 * time.Second
 	connectionHealthyGrace             = 2 * time.Minute
-	connectionReconnectBackoffMin      = 10 * time.Second
-	connectionReconnectBackoffMax      = 5 * time.Minute
+	connectionReconnectBackoffMin      = 15 * time.Second
+	connectionReconnectBackoffMax      = 10 * time.Minute
 )
 
 type PreferenceStore interface {
@@ -219,7 +219,11 @@ func (m *Manager) loadSessions(ctx context.Context) error {
 func (m *Manager) newClient(session *Session) *whatsmeow.Client {
 	clientLog := waLog.Stdout("Client", config.WhatsappLogLevel, true)
 	client := whatsmeow.NewClient(session.device, clientLog)
-	client.EnableAutoReconnect = true
+	// Disable whatsmeow's built-in auto-reconnect to prevent it from
+	// fighting with our connection supervisor and EnsureConnected logic.
+	// Our supervisor handles reconnection with proper backoff and mutex
+	// coordination, which is safer during broadcasts.
+	client.EnableAutoReconnect = false
 	client.AutoTrustIdentity = true
 	client.InitialAutoReconnect = false
 	client.AddEventHandler(func(evt interface{}) {
@@ -306,12 +310,22 @@ func (m *Manager) onEvent(accountID string, evt interface{}, client *whatsmeow.C
 }
 
 func (m *Manager) reconnectAfterPair(accountID string) {
-	time.Sleep(1500 * time.Millisecond)
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	// Give WhatsApp server enough time to finalize the pairing handshake
+	// before we disconnect and reconnect. Too-early reconnects cause the
+	// server to reject the session (stream-replaced / 400 errors).
+	time.Sleep(4 * time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if err := m.Reconnect(ctx, accountID); err != nil {
 		logrus.WithError(err).WithField("account_id", accountID).Warn("WhatsApp reconnect after QR pairing failed")
-		return
+		// Try once more after a cooldown
+		time.Sleep(5 * time.Second)
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel2()
+		if err2 := m.Reconnect(ctx2, accountID); err2 != nil {
+			logrus.WithError(err2).WithField("account_id", accountID).Warn("WhatsApp second reconnect after pairing also failed")
+			return
+		}
 	}
 	logrus.WithField("account_id", accountID).Info("WhatsApp session reconnected after QR pairing")
 }
@@ -795,24 +809,54 @@ func (m *Manager) EnsureConnected(ctx context.Context, accountID string) (*whats
 		return nil, fmt.Errorf("account is not logged in")
 	}
 
-	m.setHealthy(accountID, false)
-	m.mu.Lock()
-	if current := m.sessions[m.resolveLocked(accountID)]; current != nil {
-		current.lastDisconnectReason = "Mencoba reconnect"
+	// Retry up to 2 attempts: disconnect → connect → wait.
+	// Between attempts we give the socket a moment to settle.
+	const maxAttempts = 2
+	var lastErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		m.setHealthy(accountID, false)
+		m.mu.Lock()
+		if current := m.sessions[m.resolveLocked(accountID)]; current != nil {
+			current.lastDisconnectReason = fmt.Sprintf("Mencoba reconnect (attempt %d/%d)", attempt, maxAttempts)
+		}
+		m.mu.Unlock()
+
+		// Force-clean any stale connection
+		if session.client.IsConnected() {
+			session.client.Disconnect()
+			// Brief pause so the old websocket fully closes before we
+			// open a new one. Without this the server sometimes rejects
+			// the new connection with a 400 / stream-replaced.
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+			lastErr = err
+			m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Ensure connect gagal (attempt %d): %v", attempt, err))
+			// Wait before retrying
+			if attempt < maxAttempts {
+				time.Sleep(2 * time.Second)
+			}
+			continue
+		}
+
+		if err := m.waitUntilReady(ctx, accountID, session.client); err != nil {
+			lastErr = err
+			m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Ensure menunggu WhatsApp siap timeout (attempt %d): %v", attempt, err))
+			// The client may have disconnected during the wait. If we
+			// still have time budget, retry the whole cycle.
+			if attempt < maxAttempts {
+				time.Sleep(2 * time.Second)
+			}
+			continue
+		}
+
+		// Success!
+		return session.client, nil
 	}
-	m.mu.Unlock()
-	if session.client.IsConnected() {
-		session.client.Disconnect()
-	}
-	if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
-		m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Ensure connect gagal: %v", err))
-		return nil, err
-	}
-	if err := m.waitUntilReady(ctx, accountID, session.client); err != nil {
-		m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Ensure menunggu WhatsApp siap timeout: %v", err))
-		return nil, err
-	}
-	return session.client, nil
+
+	return nil, fmt.Errorf("ensure connected failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
 func (m *Manager) IsReady(accountID string) bool {
@@ -853,14 +897,38 @@ func (m *Manager) setHealthy(accountID string, healthy bool) {
 }
 
 func (m *Manager) waitUntilReady(ctx context.Context, accountID string, client *whatsmeow.Client) error {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
+
+	// Track how long the client has been disconnected during the wait.
+	// If it disconnects and stays down for too long, attempt one reconnect.
+	disconnectedSince := time.Time{}
+	reconnected := false
 
 	for {
 		if client.IsConnected() && client.IsLoggedIn() {
 			m.setHealthy(accountID, true)
 			return nil
 		}
+
+		// Detect unexpected disconnect during wait
+		if !client.IsConnected() {
+			if disconnectedSince.IsZero() {
+				disconnectedSince = time.Now()
+			}
+			// If disconnected for > 2s and we haven't retried, try once
+			if !reconnected && time.Since(disconnectedSince) > 2*time.Second {
+				reconnected = true
+				session := m.getSession(accountID)
+				if session != nil && session.client != nil {
+					_ = session.client.ConnectContext(ctx) // best effort
+				}
+			}
+		} else {
+			// Client is connected but not yet logged in — reset disconnect tracker
+			disconnectedSince = time.Time{}
+		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

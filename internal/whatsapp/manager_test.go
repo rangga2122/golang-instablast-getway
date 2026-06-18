@@ -57,12 +57,12 @@ func TestReconnectBackoff(t *testing.T) {
 		failures int
 		want     time.Duration
 	}{
-		{failures: 0, want: 10 * time.Second},
-		{failures: 1, want: 10 * time.Second},
-		{failures: 2, want: 20 * time.Second},
-		{failures: 3, want: 40 * time.Second},
-		{failures: 7, want: 5 * time.Minute},
-		{failures: 20, want: 5 * time.Minute},
+		{failures: 0, want: 15 * time.Second},
+		{failures: 1, want: 15 * time.Second},
+		{failures: 2, want: 30 * time.Second},
+		{failures: 3, want: 60 * time.Second},
+		{failures: 7, want: 10 * time.Minute},
+		{failures: 20, want: 10 * time.Minute},
 	}
 
 	for _, test := range tests {
