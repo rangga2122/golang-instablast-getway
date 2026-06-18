@@ -581,19 +581,27 @@ func connectionContext(ctx context.Context) (context.Context, context.CancelFunc
 	if _, ok := ctx.Deadline(); ok {
 		return context.WithCancel(ctx)
 	}
-	return context.WithTimeout(ctx, 30*time.Second)
+	// 45s gives more headroom for reconnection on slow/unstable networks
+	return context.WithTimeout(ctx, 45*time.Second)
 }
 
 func sendOperationContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	// Sending may happen after the HTTP request that started a broadcast has
 	// returned. Do not inherit request cancellation here; it causes whatsmeow
 	// writes/usync locks to fail mid-send with context canceled.
-	return context.WithTimeout(context.Background(), 60*time.Second)
+	// 90s gives enough time for media upload + send on slower connections.
+	return context.WithTimeout(context.Background(), 90*time.Second)
 }
 
 func isRetryableSendError(err error) bool {
-	if err == nil || errors.Is(err, context.DeadlineExceeded) {
+	if err == nil {
 		return false
+	}
+	// context.DeadlineExceeded means the send timed out — the socket may be
+	// stale so a reconnect + retry is worthwhile.
+	if errors.Is(err, context.DeadlineExceeded) ||
+		strings.Contains(strings.ToLower(err.Error()), "deadline exceeded") {
+		return true
 	}
 	if errors.Is(err, context.Canceled) || strings.Contains(strings.ToLower(err.Error()), "context canceled") {
 		return true
@@ -604,7 +612,13 @@ func isRetryableSendError(err error) bool {
 	errText := strings.ToLower(err.Error())
 	if strings.Contains(errText, "use of closed network connection") ||
 		strings.Contains(errText, "websocket disconnected") ||
-		strings.Contains(errText, "server returned error 400") {
+		strings.Contains(errText, "server returned error") ||
+		strings.Contains(errText, "connection reset") ||
+		strings.Contains(errText, "broken pipe") ||
+		strings.Contains(errText, "no such host") ||
+		strings.Contains(errText, "i/o timeout") ||
+		strings.Contains(errText, "tls handshake") ||
+		strings.Contains(errText, "eof") {
 		return true
 	}
 	var disconnectedErr *whatsmeow.DisconnectedError

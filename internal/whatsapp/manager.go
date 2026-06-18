@@ -23,12 +23,12 @@ const (
 	accountMetaPrefKey   = "wa_accounts_meta"
 	activeAccountPrefKey = "wa_active_account_id"
 
-	connectionSupervisorInterval       = 5 * time.Minute
-	connectionSupervisorTimeout        = 25 * time.Second
-	connectionSupervisorUnhealthyGrace = 90 * time.Second
+	connectionSupervisorInterval       = 3 * time.Minute
+	connectionSupervisorTimeout        = 30 * time.Second
+	connectionSupervisorUnhealthyGrace = 60 * time.Second
 	connectionHealthyGrace             = 2 * time.Minute
-	connectionReconnectBackoffMin      = 15 * time.Second
-	connectionReconnectBackoffMax      = 10 * time.Minute
+	connectionReconnectBackoffMin      = 10 * time.Second
+	connectionReconnectBackoffMax      = 5 * time.Minute
 )
 
 type PreferenceStore interface {
@@ -1021,7 +1021,7 @@ func (m *Manager) superviseConnection(ctx context.Context, accountID string) {
 	// EnsureConnected themselves, so broadcasts are not blocked by this cooldown.
 	m.mu.Lock()
 	if current := m.sessions[accountID]; current != nil {
-		current.nextReconnectAt = time.Now().Add(60 * time.Second)
+		current.nextReconnectAt = time.Now().Add(30 * time.Second)
 	}
 	m.mu.Unlock()
 	m.log().WithField("account_id", accountID).Info("WhatsApp connection supervisor restored session")

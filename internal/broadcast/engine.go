@@ -24,6 +24,17 @@ const (
 	StatusDone    Status = "done"
 )
 
+// maxResultsInMemory limits how many result entries we keep in RAM.
+// Counts (Sent/Failed) are always accurate; only the detail list is trimmed.
+const maxResultsInMemory = 200
+
+// maxConsecutiveFailures triggers an automatic reconnect when this many
+// sends fail in a row, before the engine gives up on the next batch.
+const maxConsecutiveFailures = 5
+
+// sendRetries is how many times a single send is retried on transient errors.
+const sendRetries = 2
+
 // Result represents a single send result
 type Result struct {
 	Number  string `json:"number"`
@@ -156,7 +167,12 @@ func GetEngineForUser(userID string) *Engine {
 func (e *Engine) GetProgress() Progress {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.progress
+	// Return a copy with trimmed results to avoid large payloads
+	p := e.progress
+	if len(p.Results) > maxResultsInMemory {
+		p.Results = p.Results[len(p.Results)-maxResultsInMemory:]
+	}
+	return p
 }
 
 // Start begins a broadcast
@@ -269,16 +285,162 @@ func (e *Engine) log(msg, level string) {
 	}
 }
 
+// ---------- helpers ----------
+
+// contextSleep sleeps for d but returns early if ctx is cancelled or the
+// broadcast status moves to Done.  Returns true when interrupted.
+func (e *Engine) contextSleep(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return true
+		case <-t.C:
+			return false
+		default:
+		}
+		// Also honour pause / stop while sleeping
+		e.mu.Lock()
+		st := e.progress.Status
+		e.mu.Unlock()
+		if st == StatusDone {
+			return true
+		}
+		if st == StatusPaused {
+			// small tick while paused – re-check every 500ms
+			select {
+			case <-ctx.Done():
+				return true
+			case <-time.After(500 * time.Millisecond):
+			}
+			continue
+		}
+		// Normal path: block until timer or cancel
+		select {
+		case <-ctx.Done():
+			return true
+		case <-t.C:
+			return false
+		}
+	}
+}
+
+// waitForPause blocks while the engine is paused, respecting cancellation.
+// Returns true if the broadcast should stop (cancelled or Done).
+func (e *Engine) waitForPause(ctx context.Context) bool {
+	for {
+		e.mu.Lock()
+		st := e.progress.Status
+		e.mu.Unlock()
+		if st == StatusDone {
+			return true
+		}
+		if st != StatusPaused {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return true
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+// ensureConnectionHealthy proactively checks and restores the WhatsApp
+// connection.  Returns nil when the account is ready to send.
+func (e *Engine) ensureConnectionHealthy(ctx context.Context, ownerID, accountID string) error {
+	if whatsapp.IsClientConnectedForAccountForUser(ownerID, accountID) {
+		return nil
+	}
+	e.log("Koneksi WhatsApp terdeteksi putus, mencoba menyambungkan ulang…", "warning")
+	return whatsapp.EnsureClientConnectedForAccountForUser(ctx, ownerID, accountID)
+}
+
+// sendWithRetry tries to send a message up to sendRetries+1 times.
+// Between retries it waits with exponential backoff and attempts a reconnect.
+func (e *Engine) sendWithRetry(ctx context.Context, ownerID, accountID string, jid types.JID, mediaItems []MediaItem, msg string) error {
+	var lastErr error
+	for attempt := 0; attempt <= sendRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(attempt*3) * time.Second
+			e.log(fmt.Sprintf("Percobaan ulang ke-%d untuk %s (tunggu %ds)…", attempt, jid.User, int(backoff.Seconds())), "info")
+			if interrupted := e.contextSleep(ctx, backoff); interrupted {
+				return fmt.Errorf("broadcast dibatalkan saat retry")
+			}
+			// Try to restore connection before retrying
+			reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 45*time.Second)
+			if err := e.ensureConnectionHealthy(reconnCtx, ownerID, accountID); err != nil {
+				reconnCancel()
+				lastErr = fmt.Errorf("reconnect gagal sebelum retry: %w", err)
+				continue
+			}
+			reconnCancel()
+		}
+		lastErr = sendMediaAndMessage(ctx, ownerID, accountID, jid, mediaItems, msg)
+		if lastErr == nil {
+			return nil
+		}
+		errLower := strings.ToLower(lastErr.Error())
+		// Only retry on transient errors
+		isTransient := strings.Contains(errLower, "not connected") ||
+			strings.Contains(errLower, "connection") ||
+			strings.Contains(errLower, "timeout") ||
+			strings.Contains(errLower, "timed out") ||
+			strings.Contains(errLower, "closed") ||
+			strings.Contains(errLower, "websocket") ||
+			strings.Contains(errLower, "server returned error") ||
+			strings.Contains(errLower, "unavailable") ||
+			strings.Contains(errLower, "context canceled") ||
+			strings.Contains(errLower, "disconnected")
+		if !isTransient {
+			return lastErr // permanent error, no point retrying
+		}
+	}
+	return lastErr
+}
+
+// recordResult appends a result to progress and trims the in-memory list.
+func (e *Engine) recordResult(result Result) {
+	e.mu.Lock()
+	e.progress.Results = append(e.progress.Results, result)
+	// Trim old results to save memory – counts stay accurate
+	if len(e.progress.Results) > maxResultsInMemory {
+		excess := len(e.progress.Results) - maxResultsInMemory
+		e.progress.Results = e.progress.Results[excess:]
+	}
+	if result.Success {
+		e.progress.Sent++
+	} else {
+		e.progress.Failed++
+	}
+	e.mu.Unlock()
+}
+
+// ---------- broadcast loops ----------
+
 func (e *Engine) runBroadcast(ctx context.Context, cfg Config) {
 	cancelled := false
 	defer func() {
 		e.finish(cancelled)
 	}()
 
+	// Pre-flight: make sure the connection is alive before we start
+	preCtx, preCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	if err := e.ensureConnectionHealthy(preCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+		preCancel()
+		e.log(fmt.Sprintf("Gagal memulai broadcast: koneksi WhatsApp tidak tersedia (%v)", err), "error")
+		return
+	}
+	preCancel()
+
 	mediaItems := normalizeMediaItems(cfg.Images, cfg.ImageData, cfg.ImageMime)
 	contactRows := contactRowsByNumber(cfg.ContactRows)
 
+	consecutiveFails := 0
+
 	for i, number := range cfg.Numbers {
+		// Check cancellation
 		select {
 		case <-ctx.Done():
 			cancelled = true
@@ -287,15 +449,10 @@ func (e *Engine) runBroadcast(ctx context.Context, cfg Config) {
 		default:
 		}
 
-		// Wait if paused
-		for {
-			e.mu.Lock()
-			st := e.progress.Status
-			e.mu.Unlock()
-			if st != StatusPaused {
-				break
-			}
-			time.Sleep(500 * time.Millisecond)
+		// Wait if paused (context-aware)
+		if shouldStop := e.waitForPause(ctx); shouldStop {
+			cancelled = true
+			return
 		}
 
 		e.mu.Lock()
@@ -306,6 +463,36 @@ func (e *Engine) runBroadcast(ctx context.Context, cfg Config) {
 		e.progress.Current = i + 1
 		e.progress.CurrentNum = number
 		e.mu.Unlock()
+
+		// Periodic health check: every 10 sends, verify connection
+		if i > 0 && i%10 == 0 {
+			healthCtx, healthCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := e.ensureConnectionHealthy(healthCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+				healthCancel()
+				e.log(fmt.Sprintf("Health check gagal di pesan #%d: %v", i+1, err), "warning")
+			} else {
+				healthCancel()
+			}
+		}
+
+		// Auto-reconnect after too many consecutive failures
+		if consecutiveFails >= maxConsecutiveFailures {
+			e.log(fmt.Sprintf("%d pengiriman berturut-turut gagal, mencoba reconnect…", consecutiveFails), "warning")
+			reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 60*time.Second)
+			if err := whatsapp.EnsureClientConnectedForAccountForUser(reconnCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+				reconnCancel()
+				e.log(fmt.Sprintf("Reconnect gagal: %v — broadcast dilanjutkan", err), "error")
+			} else {
+				reconnCancel()
+				e.log("Reconnect berhasil, melanjutkan broadcast", "info")
+				consecutiveFails = 0
+				// Small pause after reconnect to let things stabilize
+				if interrupted := e.contextSleep(ctx, 5*time.Second); interrupted {
+					cancelled = true
+					return
+				}
+			}
+		}
 
 		// Process message with spintax
 		msg := cfg.Message
@@ -319,40 +506,41 @@ func (e *Engine) runBroadcast(ctx context.Context, cfg Config) {
 		// Build JID
 		jid := types.NewJID(number, types.DefaultUserServer)
 
-		err := sendMediaAndMessage(ctx, cfg.OwnerID, cfg.AccountID, jid, mediaItems, msg)
+		err := e.sendWithRetry(ctx, cfg.OwnerID, cfg.AccountID, jid, mediaItems, msg)
 
 		result := Result{Number: number, Success: err == nil}
 		if err != nil {
 			result.Error = err.Error()
-			e.log(fmt.Sprintf("âŒ Gagal kirim ke %s: %s", number, err.Error()), "error")
+			e.log(fmt.Sprintf("❌ Gagal kirim ke %s: %s", number, err.Error()), "error")
+			consecutiveFails++
 		} else {
-			e.log(fmt.Sprintf("âœ… Terkirim ke %s", number), "success")
+			e.log(fmt.Sprintf("✅ Terkirim ke %s", number), "success")
+			consecutiveFails = 0
 		}
 
-		e.mu.Lock()
-		e.progress.Results = append(e.progress.Results, result)
-		if err == nil {
-			e.progress.Sent++
-		} else {
-			e.progress.Failed++
-		}
-		e.mu.Unlock()
+		e.recordResult(result)
 
-		// Delay
+		// Delay (context-aware)
 		if i < len(cfg.Numbers)-1 {
 			delay := e.calculateDelay(cfg.DelaySeconds, cfg.RandomDelay, cfg.DelayMin, cfg.DelayMax)
 
 			// Burst pause
 			if cfg.BurstEvery > 0 && cfg.BurstPause > 0 && (i+1)%cfg.BurstEvery == 0 {
-				e.log(fmt.Sprintf("â¸ Burst pause %d detik setelah %d pesan", cfg.BurstPause, cfg.BurstEvery), "info")
-				time.Sleep(time.Duration(cfg.BurstPause) * time.Second)
+				e.log(fmt.Sprintf("⏸ Burst pause %d detik setelah %d pesan", cfg.BurstPause, cfg.BurstEvery), "info")
+				if interrupted := e.contextSleep(ctx, time.Duration(cfg.BurstPause)*time.Second); interrupted {
+					cancelled = true
+					return
+				}
 			} else {
-				time.Sleep(time.Duration(delay) * time.Second)
+				if interrupted := e.contextSleep(ctx, time.Duration(delay)*time.Second); interrupted {
+					cancelled = true
+					return
+				}
 			}
 		}
 	}
 
-	e.log(fmt.Sprintf("âœ… Broadcast selesai: %d terkirim, %d gagal", e.progress.Sent, e.progress.Failed), "success")
+	e.log(fmt.Sprintf("✅ Broadcast selesai: %d terkirim, %d gagal", e.progress.Sent, e.progress.Failed), "success")
 }
 
 func (e *Engine) runPersonalBroadcast(ctx context.Context, cfg PersonalConfig) {
@@ -361,7 +549,18 @@ func (e *Engine) runPersonalBroadcast(ctx context.Context, cfg PersonalConfig) {
 		e.finish(cancelled)
 	}()
 
+	// Pre-flight: make sure the connection is alive before we start
+	preCtx, preCancel := context.WithTimeout(context.Background(), 45*time.Second)
+	if err := e.ensureConnectionHealthy(preCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+		preCancel()
+		e.log(fmt.Sprintf("Gagal memulai broadcast personalisasi: koneksi WhatsApp tidak tersedia (%v)", err), "error")
+		return
+	}
+	preCancel()
+
 	mediaItems := normalizeMediaItems(cfg.Images, cfg.ImageData, cfg.ImageMime)
+
+	consecutiveFails := 0
 
 	for i, row := range cfg.Data {
 		select {
@@ -372,15 +571,10 @@ func (e *Engine) runPersonalBroadcast(ctx context.Context, cfg PersonalConfig) {
 		default:
 		}
 
-		// Wait if paused
-		for {
-			e.mu.Lock()
-			st := e.progress.Status
-			e.mu.Unlock()
-			if st != StatusPaused {
-				break
-			}
-			time.Sleep(500 * time.Millisecond)
+		// Wait if paused (context-aware)
+		if shouldStop := e.waitForPause(ctx); shouldStop {
+			cancelled = true
+			return
 		}
 
 		number := row["nomor"]
@@ -397,6 +591,35 @@ func (e *Engine) runPersonalBroadcast(ctx context.Context, cfg PersonalConfig) {
 		e.progress.CurrentNum = number
 		e.mu.Unlock()
 
+		// Periodic health check: every 10 sends
+		if i > 0 && i%10 == 0 {
+			healthCtx, healthCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := e.ensureConnectionHealthy(healthCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+				healthCancel()
+				e.log(fmt.Sprintf("Health check gagal di pesan #%d: %v", i+1, err), "warning")
+			} else {
+				healthCancel()
+			}
+		}
+
+		// Auto-reconnect after too many consecutive failures
+		if consecutiveFails >= maxConsecutiveFailures {
+			e.log(fmt.Sprintf("%d pengiriman berturut-turut gagal, mencoba reconnect…", consecutiveFails), "warning")
+			reconnCtx, reconnCancel := context.WithTimeout(context.Background(), 60*time.Second)
+			if err := whatsapp.EnsureClientConnectedForAccountForUser(reconnCtx, cfg.OwnerID, cfg.AccountID); err != nil {
+				reconnCancel()
+				e.log(fmt.Sprintf("Reconnect gagal: %v — broadcast dilanjutkan", err), "error")
+			} else {
+				reconnCancel()
+				e.log("Reconnect berhasil, melanjutkan broadcast", "info")
+				consecutiveFails = 0
+				if interrupted := e.contextSleep(ctx, 5*time.Second); interrupted {
+					cancelled = true
+					return
+				}
+			}
+		}
+
 		// Replace placeholders in message
 		msg := cfg.Message
 		for key, value := range row {
@@ -408,38 +631,39 @@ func (e *Engine) runPersonalBroadcast(ctx context.Context, cfg PersonalConfig) {
 
 		jid := types.NewJID(number, types.DefaultUserServer)
 
-		err := sendMediaAndMessage(ctx, cfg.OwnerID, cfg.AccountID, jid, mediaItems, msg)
+		err := e.sendWithRetry(ctx, cfg.OwnerID, cfg.AccountID, jid, mediaItems, msg)
 
 		result := Result{Number: number, Success: err == nil}
 		if err != nil {
 			result.Error = err.Error()
-			e.log(fmt.Sprintf("âŒ Gagal kirim ke %s: %s", number, err.Error()), "error")
+			e.log(fmt.Sprintf("❌ Gagal kirim ke %s: %s", number, err.Error()), "error")
+			consecutiveFails++
 		} else {
-			e.log(fmt.Sprintf("âœ… Terkirim ke %s (%s)", number, row["nama"]), "success")
+			e.log(fmt.Sprintf("✅ Terkirim ke %s (%s)", number, row["nama"]), "success")
+			consecutiveFails = 0
 		}
 
-		e.mu.Lock()
-		e.progress.Results = append(e.progress.Results, result)
-		if err == nil {
-			e.progress.Sent++
-		} else {
-			e.progress.Failed++
-		}
-		e.mu.Unlock()
+		e.recordResult(result)
 
-		// Delay
+		// Delay (context-aware)
 		if i < len(cfg.Data)-1 {
 			delay := e.calculateDelay(cfg.DelaySeconds, cfg.RandomDelay, cfg.DelayMin, cfg.DelayMax)
 			if cfg.BurstEvery > 0 && cfg.BurstPause > 0 && (i+1)%cfg.BurstEvery == 0 {
-				e.log(fmt.Sprintf("â¸ Burst pause %d detik", cfg.BurstPause), "info")
-				time.Sleep(time.Duration(cfg.BurstPause) * time.Second)
+				e.log(fmt.Sprintf("⏸ Burst pause %d detik", cfg.BurstPause), "info")
+				if interrupted := e.contextSleep(ctx, time.Duration(cfg.BurstPause)*time.Second); interrupted {
+					cancelled = true
+					return
+				}
 			} else {
-				time.Sleep(time.Duration(delay) * time.Second)
+				if interrupted := e.contextSleep(ctx, time.Duration(delay)*time.Second); interrupted {
+					cancelled = true
+					return
+				}
 			}
 		}
 	}
 
-	e.log(fmt.Sprintf("âœ… Broadcast personalisasi selesai: %d terkirim, %d gagal", e.progress.Sent, e.progress.Failed), "success")
+	e.log(fmt.Sprintf("✅ Broadcast personalisasi selesai: %d terkirim, %d gagal", e.progress.Sent, e.progress.Failed), "success")
 }
 
 func contactRowsByNumber(rows []map[string]string) map[string]map[string]string {
