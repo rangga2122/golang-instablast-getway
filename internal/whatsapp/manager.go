@@ -576,7 +576,7 @@ func (m *Manager) Connect(ctx context.Context, accountID string) error {
 		}
 		return nil
 	}
-	err := session.client.ConnectContext(ctx)
+	err := session.client.ConnectContext(context.Background())
 	if errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 		if session.client.IsLoggedIn() {
 			m.setHealthy(accountID, true)
@@ -731,7 +731,7 @@ func (m *Manager) PairCode(ctx context.Context, accountID, phone string) (string
 	if err != nil {
 		return "", AccountInfo{}, err
 	}
-	if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+	if err := session.client.ConnectContext(context.Background()); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 		return "", AccountInfo{}, err
 	}
 
@@ -792,7 +792,7 @@ func (m *Manager) Reconnect(ctx context.Context, accountID string) error {
 	case <-timer.C:
 	}
 
-	if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+	if err := session.client.ConnectContext(context.Background()); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 		m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Reconnect gagal: %v", err))
 		return err
 	}
@@ -844,7 +844,7 @@ func (m *Manager) EnsureConnected(ctx context.Context, accountID string) (*whats
 			time.Sleep(500 * time.Millisecond)
 		}
 
-		if err := session.client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+		if err := session.client.ConnectContext(context.Background()); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 			lastErr = err
 			m.recordReconnectFailureWithReason(accountID, fmt.Sprintf("Ensure connect gagal (attempt %d): %v", attempt, err))
 			// Wait before retrying
@@ -934,7 +934,7 @@ func (m *Manager) waitUntilReady(ctx context.Context, accountID string, client *
 				reconnected = true
 				session := m.getSession(accountID)
 				if session != nil && session.client != nil {
-					_ = session.client.ConnectContext(ctx) // best effort
+					_ = session.client.ConnectContext(context.Background()) // best effort
 				}
 			}
 		} else {

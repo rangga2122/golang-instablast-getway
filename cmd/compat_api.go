@@ -884,7 +884,7 @@ func compatLoginViaQR(c *fiber.Ctx, deviceID string) error {
 	if err != nil {
 		return compatAPIError(c, fiber.StatusBadRequest, "QR_FAILED", err.Error(), nil)
 	}
-	if err := client.ConnectContext(qrCtx); err != nil {
+	if err := client.ConnectContext(context.Background()); err != nil {
 		return compatAPIError(c, fiber.StatusBadRequest, "CONNECT_FAILED", err.Error(), nil)
 	}
 	for evt := range qrChan {

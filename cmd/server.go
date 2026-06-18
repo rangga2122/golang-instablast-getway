@@ -1147,7 +1147,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		if err := client.ConnectContext(qrCtx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+		if err := client.ConnectContext(context.Background()); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 		for {
@@ -1712,7 +1712,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		if err := client.ConnectContext(qrCtx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
+		if err := client.ConnectContext(context.Background()); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
 
