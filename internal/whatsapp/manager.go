@@ -314,6 +314,20 @@ func (m *Manager) reconnectAfterPair(accountID string) {
 	// before we disconnect and reconnect. Too-early reconnects cause the
 	// server to reject the session (stream-replaced / 400 errors).
 	time.Sleep(4 * time.Second)
+
+	// PairSuccess can happen while the UI immediately starts a broadcast.
+	// Reconnect() disconnects the websocket before connecting again; doing that
+	// concurrently with SendMessage makes whatsmeow fail the send path with
+	// "failed to get device list", "context canceled", or "use of closed network
+	// connection". Serialize this automatic post-pair reconnect with sends, just
+	// like the connection supervisor does.
+	session := m.getSession(accountID)
+	if session == nil {
+		return
+	}
+	session.sendMu.Lock()
+	defer session.sendMu.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if err := m.Reconnect(ctx, accountID); err != nil {
@@ -329,7 +343,6 @@ func (m *Manager) reconnectAfterPair(accountID string) {
 	}
 	logrus.WithField("account_id", accountID).Info("WhatsApp session reconnected after QR pairing")
 }
-
 
 func (m *Manager) saveStateLocked() {
 	if m.prefs == nil {
