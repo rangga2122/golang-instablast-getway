@@ -60,7 +60,11 @@ func init() {
 	WhatsappAIModel = envString("WHATSAPP_AI_MODEL", WhatsappAIModel)
 	WhatsappAIMaxTokens = envInt("WHATSAPP_AI_MAX_TOKENS", WhatsappAIMaxTokens)
 	WhatsappAIRequestTimeoutSec = envInt("WHATSAPP_AI_REQUEST_TIMEOUT_SEC", WhatsappAIRequestTimeoutSec)
+	CosmicMCPKey = envString("COSMIC_MCP_KEY", "")
 }
+
+// CosmicMCPKey holds the Cosmic MCP bearer key (read by internal/ai).
+var CosmicMCPKey string
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {

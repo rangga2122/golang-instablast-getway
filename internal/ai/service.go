@@ -739,7 +739,7 @@ func (s *Service) prepareUserSegment(ctx context.Context, settings Settings, par
 
 func (s *Service) generateReply(ctx context.Context, settings Settings, accountID string, history []chatTurn, userText string) (string, error) {
 	apiKey := effectiveAPIKey(settings)
-	if apiKey == "" {
+	if apiKey == "" && !CosmicMCPEnabled() {
 		return "", fmt.Errorf("api key AI belum diisi")
 	}
 
@@ -759,6 +759,9 @@ func (s *Service) generateReply(ctx context.Context, settings Settings, accountI
 		"role":    "user",
 		"content": userText,
 	})
+	if CosmicMCPEnabled() {
+		return s.cosmicChatCompletion(ctx, messages)
+	}
 	return s.doNvidiaChatCompletion(ctx, apiKey, messages)
 }
 
@@ -975,6 +978,9 @@ func (s *Service) extractImageInsight(ctx context.Context, settings Settings, im
 }
 
 func (s *Service) runVisionAnalysis(ctx context.Context, settings Settings, imageData []byte, mimeType, caption string) (string, error) {
+	if CosmicMCPEnabled() {
+		return s.cosmicVisionAnalysis(ctx, imageData, mimeType, caption)
+	}
 	apiKey := effectiveAPIKey(settings)
 	if apiKey == "" {
 		return "", fmt.Errorf("api key AI belum diisi")

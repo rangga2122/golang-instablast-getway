@@ -107,12 +107,6 @@
           </span>
           <span class="nav-label">Auto Reply</span>
         </button>
-        <button class="nav-item" data-tab="waba" onclick="switchTab('waba')">
-          <span class="nav-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3a8.5 8.5 0 0 0-7.4 12.7L3.5 21l5.5-1.4A8.5 8.5 0 1 0 12 3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 8.8c.2-.4.4-.4.7-.4h.6c.2 0 .4 0 .6.4.2.5.7 1.7.8 1.8.1.2.1.3 0 .5-.1.2-.2.3-.4.5l-.3.3c-.1.1-.2.2-.1.4.1.2.6 1 1.4 1.6.9.7 1.6.9 1.8 1 .2.1.3 0 .4-.1l.6-.7c.2-.2.3-.2.5-.1.2.1 1.5.7 1.8.8.3.1.4.2.4.4 0 .2-.1 1-.7 1.5-.5.4-1.1.5-1.5.5-.4 0-1-.1-1.9-.5-.5-.2-1.2-.5-2-1.2-.6-.5-1.1-1.1-1.5-1.7-.4-.6-.8-1.3-1.1-2-.3-.7-.4-1.3-.4-1.8 0-.5.2-.9.5-1.3.2-.3.4-.4.6-.4Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
-          </span>
-          <span class="nav-label">WABA</span>
-        </button>
         <button class="nav-item" data-tab="api-docs" onclick="switchTab('api-docs')">
           <span class="nav-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none"><path d="M7 4.5h8l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 19V6A1.5 1.5 0 0 1 7.5 4.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M15 4.5V9h4" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 12h6M9 15h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
@@ -907,66 +901,6 @@ Content-Type: application/json
                 <div class="btn-row"><button class="btn btn-secondary btn-sm" onclick="copyAPIDocValue('apiDocsSuccessExample', 'Contoh response')">Salin</button></div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-      <div class="tab-pane" id="tab-waba">
-        <div class="page-header"><h1 class="page-title">WABA Cloud</h1></div>
-        <div class="two-column">
-          <div class="column">
-            <div class="card">
-              <div class="card-title"><span>Meta</span> Koneksi Token Manual</div>
-              <div class="waba-feature-card">
-                <div class="waba-feature-badges">
-                  <span class="feature-badge">OFFICIAL</span>
-                  <span class="feature-badge feature-badge-green">CLOUD</span>
-                  <span class="feature-badge feature-badge-blue">MANUAL</span>
-                </div>
-                <h3>Login Manual WhatsApp Business</h3>
-                <p>Masukkan Access Token dan WABA ID dari Meta Business atau Developer Console.</p>
-                <div class="hint">Token minimal perlu izin <code>whatsapp_business_management</code> dan <code>whatsapp_business_messaging</code>. Sistem akan mencoba membaca nomor aktif, subscribe webhook, lalu menyimpan akun WABA Cloud ke tenant ini.</div>
-                <div class="form-group" style="margin-top:16px;">
-                  <label>Access Token *</label>
-                  <input type="password" id="metaManualAccessToken" placeholder="Masukkan access token WhatsApp Business API Anda" autocomplete="off" />
-                  <div class="hint">Bisa berupa System User Token atau token manual lain yang punya akses ke WABA.</div>
-                </div>
-                <div class="form-group">
-                  <label>WABA ID *</label>
-                  <input type="text" id="metaManualWabaId" placeholder="Contoh: 123456789012345" autocomplete="off" />
-                  <div class="hint">ID WhatsApp Business Account dari Meta Developer Console atau Business Manager.</div>
-                </div>
-                <div class="form-group">
-                  <label>Nama Akun Opsional</label>
-                  <input type="text" id="metaManualName" placeholder="Contoh: CS Toko Utama" autocomplete="off" />
-                </div>
-                <div class="btn-row" style="margin-top:16px;">
-                  <button class="btn btn-primary" onclick="connectMetaManual()">Hubungkan WhatsApp</button>
-                  <button class="btn btn-secondary" onclick="loadMetaAccounts()">Refresh Daftar</button>
-                  <a class="btn btn-secondary" href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noopener noreferrer">Panduan Meta</a>
-                </div>
-                <div id="metaManualStatus" class="status-text"></div>
-              </div>
-            </div>
-          </div>
-          <div class="column">
-            <div class="card">
-              <div class="card-title"><span>Info</span> Ringkasan WABA</div>
-              <div class="stats-grid">
-                <div class="stat-card blue"><div class="stat-info"><div class="stat-label">Total WABA</div><div class="stat-value" id="metaStatTotal">0</div></div></div>
-                <div class="stat-card green"><div class="stat-info"><div class="stat-label">Siap Setup</div><div class="stat-value" id="metaStatReady">0</div></div></div>
-                <div class="stat-card orange"><div class="stat-info"><div class="stat-label">Pending</div><div class="stat-value" id="metaStatPending">0</div></div></div>
-              </div>
-              <div class="hint">Setelah token manual diverifikasi, akun akan dicoba sinkronkan ke WABA ID, nomor aktif, dan webhook subscription. Jika token valid tetapi nomor belum lengkap, status akan tampil sebagai <code>pending_setup</code>.</div>
-            </div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-title"><span>List</span> Daftar WABA Cloud</div>
-          <div style="overflow-x:auto; margin-top:8px;">
-            <table class="data-table">
-              <thead><tr><th>Nama</th><th>WABA ID</th><th>Phone Number ID</th><th>Nomor</th><th>Status</th><th>Onboarding</th><th>Update</th></tr></thead>
-              <tbody id="metaAccountsTableBody"><tr><td colspan="7" class="empty-cell">Belum ada akun WABA Cloud</td></tr></tbody>
-            </table>
           </div>
         </div>
       </div>
