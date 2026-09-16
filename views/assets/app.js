@@ -39,17 +39,7 @@ let aiSelectedKnowledgeID = '';
 let aiKnowledgeMappingAccountID = '';
 let currentUser = null;
 let editingManagedUser = null;
-let metaSignupPopup = null;
-let metaSignupState = '';
-let metaSignupConfig = null;
-let metaSignupCode = '';
-let metaSignupSessionInfo = null;
-let metaSignupPreparing = null;
-let metaSignupCompleting = false;
-let metaSignupReadyAt = 0;
 let metaSDKReadyPromise = null;
-let metaSignupFallbackTimer = null;
-let metaSignupSDKReady = false;
 let broadcastSchedulesCache = [];
 let broadcastHistoryCache = [];
 let broadcastMode = 'list';
@@ -220,31 +210,6 @@ function normalizeLegacyBroadcastHeader() {
   });
 }
 
-function sanitizeWabaCloudCopy() {
-  const wabaTab = $('tab-waba');
-  if (!wabaTab) return;
-  const subtitle = wabaTab.querySelector('.page-header .page-subtitle');
-  if (subtitle) {
-    const text = String(subtitle.textContent || '');
-    if (
-      text.includes('Sambungkan akun WhatsApp Business resmi secara manual') ||
-      text.includes('Flow popup otomatis disembunyikan') ||
-      text.includes('koneksi manual yang lebih stabil')
-    ) {
-      subtitle.remove();
-    }
-  }
-  wabaTab.querySelectorAll('p, .hint, .status-text').forEach((el) => {
-    const text = String(el.textContent || '');
-    if (text.includes('Flow popup otomatis disembunyikan')) {
-      el.textContent = text.replace(/Flow popup otomatis disembunyikan dulu agar fokus ke koneksi manual yang lebih stabil\.?/gi, '').trim();
-    }
-    if (text.includes('tanpa menunggu Embedded Signup siap')) {
-      el.textContent = text.replace(/Cocok untuk login manual dulu tanpa menunggu Embedded Signup siap\.?/gi, '').trim();
-    }
-  });
-}
-
 function ensureToolsAccountSelector() {
   const toolsTab = $('tab-tools');
   if (!toolsTab) return;
@@ -275,7 +240,6 @@ function normalizeLegacyLayout() {
   normalizeLegacyTopbar();
   normalizeLegacySettingsUI();
   normalizeLegacyBroadcastHeader();
-  sanitizeWabaCloudCopy();
   ensureToolsAccountSelector();
 }
 
@@ -1432,13 +1396,8 @@ function switchTab(tab) {
   if (paneTab === 'admin') {
     loadAdminUsers();
     loadAdminAIConfig();
-    loadAdminMetaConfig();
     loadAdminTrialOTPConfig();
     loadAdminTrialOTPStatus();
-  }
-  if (paneTab === 'waba') {
-    sanitizeWabaCloudCopy();
-    loadMetaAccounts();
   }
   closeSidebar();
 }
@@ -1661,11 +1620,9 @@ function setBroadcastMode(mode) {
 }
 
 function switchBroadcastType(type) {
-  broadcastType = type === 'waba' ? 'waba' : 'unofficial';
-  $('broadcastTypeUnofficial')?.classList.toggle('active', broadcastType === 'unofficial');
-  $('broadcastTypeWaba')?.classList.toggle('active', broadcastType === 'waba');
-  $('broadcastUnofficialPanel')?.classList.toggle('active', broadcastType === 'unofficial');
-  $('broadcastWabaPanel')?.classList.toggle('active', broadcastType === 'waba');
+  broadcastType = 'unofficial';
+  $('broadcastTypeUnofficial')?.classList.toggle('active', true);
+  $('broadcastUnofficialPanel')?.classList.toggle('active', true);
 }
 
 function openBroadcastComposer() {
@@ -4239,23 +4196,6 @@ async function loadAdminAIConfig() {
   }
 }
 
-async function loadAdminMetaConfig() {
-  if (!currentUser?.is_admin) return;
-  try {
-    const data = await api('/admin/meta-config');
-    if ($('adminMetaAppId')) $('adminMetaAppId').value = data.app_id || '';
-    if ($('adminMetaAppSecret')) $('adminMetaAppSecret').value = data.app_secret || '';
-    if ($('adminMetaConfigId')) $('adminMetaConfigId').value = data.config_id || '';
-    if ($('adminMetaRedirectUri')) $('adminMetaRedirectUri').value = data.redirect_uri || '';
-    if ($('adminMetaVerifyToken')) $('adminMetaVerifyToken').value = data.verify_token || '';
-  } catch (e) {
-    if ($('adminMetaStatus')) {
-      $('adminMetaStatus').textContent = e.message;
-      $('adminMetaStatus').style.color = '#ef4444';
-    }
-  }
-}
-
 function setAdminTrialOTPText(id, message, color) {
   if (!$(id)) return;
   $(id).textContent = message || '';
@@ -4412,429 +4352,6 @@ async function saveAdminAIConfig() {
   }
 }
 
-async function saveAdminMetaConfig() {
-  if (!currentUser?.is_admin) return;
-  try {
-    await api('/admin/meta-config', {
-      method: 'POST',
-      body: JSON.stringify({
-        app_id: $('adminMetaAppId')?.value?.trim() || '',
-        app_secret: $('adminMetaAppSecret')?.value?.trim() || '',
-        config_id: $('adminMetaConfigId')?.value?.trim() || '',
-        redirect_uri: $('adminMetaRedirectUri')?.value?.trim() || '',
-        verify_token: $('adminMetaVerifyToken')?.value?.trim() || '',
-      })
-    });
-    if ($('adminMetaStatus')) {
-      $('adminMetaStatus').textContent = 'Konfigurasi Meta berhasil disimpan';
-      $('adminMetaStatus').style.color = '#22c55e';
-    }
-  } catch (e) {
-    if ($('adminMetaStatus')) {
-      $('adminMetaStatus').textContent = e.message;
-      $('adminMetaStatus').style.color = '#ef4444';
-    }
-  }
-}
-
-function openMetaSignupModal() {
-  if ($('metaSignupModal')) $('metaSignupModal').classList.add('open');
-  resetMetaSignupRuntime();
-  resetMetaSignupChecklist();
-  syncMetaSignupLaunchState();
-  if ($('metaModalStatus')) {
-    $('metaModalStatus').textContent = 'Menyiapkan Meta Embedded Signup...';
-    $('metaModalStatus').style.color = '#f59e0b';
-  }
-  prepareMetaSignup();
-}
-
-function closeMetaSignupModal() {
-  if ($('metaSignupModal')) $('metaSignupModal').classList.remove('open');
-}
-
-function resetMetaSignupRuntime() {
-  metaSignupCode = '';
-  metaSignupSessionInfo = null;
-  metaSignupCompleting = false;
-  metaSignupState = '';
-  metaSignupConfig = null;
-  metaSignupReadyAt = 0;
-  metaSignupSDKReady = false;
-  if (metaSignupFallbackTimer) {
-    clearTimeout(metaSignupFallbackTimer);
-    metaSignupFallbackTimer = null;
-  }
-}
-
-function setMetaLaunchButtonDisabled(disabled) {
-  if ($('metaLaunchButton')) $('metaLaunchButton').disabled = !!disabled;
-}
-
-function resetMetaSignupChecklist() {
-  document.querySelectorAll('#metaSignupModal input[data-meta-check]').forEach((el) => {
-    el.checked = false;
-  });
-}
-
-function isMetaSignupChecklistComplete() {
-  const checks = Array.from(document.querySelectorAll('#metaSignupModal input[data-meta-check]'));
-  return checks.length > 0 && checks.every((el) => el.checked);
-}
-
-function syncMetaSignupLaunchState() {
-  const canLaunch = metaSignupSDKReady && isMetaSignupChecklistComplete();
-  setMetaLaunchButtonDisabled(!canLaunch);
-  return canLaunch;
-}
-
-function isTrustedMetaOrigin(origin) {
-  try {
-    const { hostname } = new URL(origin);
-    return hostname === 'facebook.com' || hostname.endsWith('.facebook.com');
-  } catch (_) {
-    return false;
-  }
-}
-
-async function ensureMetaFacebookSDK(appId, graphVersion) {
-  if (!appId) throw new Error('Meta App ID belum diisi');
-
-  const initSDK = () => {
-    if (!window.FB || typeof window.FB.init !== 'function') {
-      throw new Error('Facebook SDK belum siap');
-    }
-    window.FB.init({
-      appId,
-      cookie: true,
-      xfbml: false,
-      version: graphVersion || 'v22.0'
-    });
-    return window.FB;
-  };
-
-  if (window.FB && typeof window.FB.init === 'function') {
-    return initSDK();
-  }
-
-  if (!metaSDKReadyPromise) {
-    metaSDKReadyPromise = new Promise((resolve, reject) => {
-      const existing = document.getElementById('facebook-jssdk');
-      window.fbAsyncInit = () => {
-        try {
-          resolve(initSDK());
-        } catch (err) {
-          reject(err);
-        }
-      };
-      if (existing) return;
-      const script = document.createElement('script');
-      script.id = 'facebook-jssdk';
-      script.async = true;
-      script.defer = true;
-      script.src = 'https://connect.facebook.net/en_US/sdk.js';
-      script.onerror = () => reject(new Error('Gagal memuat Facebook SDK'));
-      document.body.appendChild(script);
-    });
-  }
-
-  return metaSDKReadyPromise.then(() => initSDK());
-}
-
-async function prepareMetaSignup() {
-  if (metaSignupPreparing) return metaSignupPreparing;
-  metaSignupPreparing = (async () => {
-    try {
-      const data = await api('/meta/signup/session');
-      metaSignupConfig = data || {};
-      metaSignupState = data.state || '';
-      metaSignupReadyAt = Date.now();
-      metaSignupSDKReady = !!(data && data.launch_url && data.state);
-      syncMetaSignupLaunchState();
-      if ($('metaModalStatus')) {
-        $('metaModalStatus').textContent = isMetaSignupChecklistComplete()
-          ? 'Meta siap. Lanjutkan ke Facebook untuk mulai daftar.'
-          : 'Meta siap. Centang checklist wajib di bawah sebelum lanjut.';
-        $('metaModalStatus').style.color = isMetaSignupChecklistComplete() ? '#22c55e' : '#f59e0b';
-      }
-    } catch (e) {
-      metaSignupSDKReady = false;
-      syncMetaSignupLaunchState();
-      if ($('metaModalStatus')) {
-        $('metaModalStatus').textContent = e.message;
-        $('metaModalStatus').style.color = '#ef4444';
-      }
-      if ($('metaSignupStatus')) {
-        $('metaSignupStatus').textContent = e.message;
-        $('metaSignupStatus').style.color = '#ef4444';
-      }
-      throw e;
-    } finally {
-      metaSignupPreparing = null;
-    }
-  })();
-  return metaSignupPreparing;
-}
-
-function handleMetaFBLoginResponse(response) {
-  if (response?.authResponse?.code) {
-    metaSignupCode = response.authResponse.code;
-    if ($('metaSignupStatus')) {
-      $('metaSignupStatus').textContent = 'Kode otorisasi Meta diterima. Menunggu detail WABA...';
-      $('metaSignupStatus').style.color = '#f59e0b';
-    }
-    scheduleMetaSignupCompletion();
-    return;
-  }
-
-  const message = response?.status === 'unknown'
-    ? 'Login Facebook dibatalkan atau popup tertutup sebelum selesai.'
-    : 'Meta tidak mengembalikan authorization code.';
-  if ($('metaSignupStatus')) {
-    $('metaSignupStatus').textContent = message;
-    $('metaSignupStatus').style.color = '#ef4444';
-  }
-}
-
-function scheduleMetaSignupCompletion(force = false) {
-  if (!metaSignupCode || metaSignupCompleting) return;
-  if (metaSignupFallbackTimer) clearTimeout(metaSignupFallbackTimer);
-  if (!force && !metaSignupSessionInfo) {
-    metaSignupFallbackTimer = setTimeout(() => scheduleMetaSignupCompletion(true), 3000);
-    return;
-  }
-  completeMetaSignup();
-}
-
-async function launchMetaSignup() {
-  try {
-    if (!metaSignupConfig || !metaSignupState || (Date.now() - metaSignupReadyAt) > (10 * 60 * 1000)) {
-      throw new Error('Sesi Meta belum siap. Tutup modal lalu buka lagi.');
-    }
-    if (!metaSignupConfig.launch_url) {
-      throw new Error('URL signup Meta belum tersedia');
-    }
-    if (!isMetaSignupChecklistComplete()) {
-      throw new Error('Centang dulu checklist penting sebelum lanjut ke Facebook.');
-    }
-    if ($('metaModalStatus')) {
-      $('metaModalStatus').textContent = 'Popup resmi Facebook sedang dibuka...';
-      $('metaModalStatus').style.color = '#f59e0b';
-    }
-    if ($('metaSignupStatus')) {
-      $('metaSignupStatus').textContent = 'Selesaikan semua langkah di popup Facebook sampai tombol Finish.';
-      $('metaSignupStatus').style.color = '#f59e0b';
-    }
-    const popup = window.open(
-      metaSignupConfig.launch_url,
-      'MetaEmbeddedSignup',
-      'width=1200,height=800,scrollbars=yes,resizable=yes'
-    );
-    if (!popup) {
-      throw new Error('Popup Facebook diblokir browser. Izinkan popup lalu coba lagi.');
-    }
-  } catch (e) {
-    if ($('metaModalStatus')) {
-      $('metaModalStatus').textContent = e.message;
-      $('metaModalStatus').style.color = '#ef4444';
-    }
-    if ($('metaSignupStatus')) {
-      $('metaSignupStatus').textContent = e.message;
-      $('metaSignupStatus').style.color = '#ef4444';
-    }
-  }
-}
-
-async function completeMetaSignupFromCallback(payload) {
-  if (!payload?.state || payload.state !== metaSignupState) return;
-  if (payload.error) {
-    if ($('metaSignupStatus')) {
-      $('metaSignupStatus').textContent = payload.error_description || payload.error || 'Embedded Signup dibatalkan';
-      $('metaSignupStatus').style.color = '#ef4444';
-    }
-    closeMetaSignupModal();
-    return;
-  }
-  metaSignupCode = payload.code || '';
-  if ($('metaSignupStatus')) {
-    $('metaSignupStatus').textContent = 'Kode callback Meta diterima. Menyelesaikan sinkronisasi akun...';
-    $('metaSignupStatus').style.color = '#f59e0b';
-  }
-  scheduleMetaSignupCompletion(true);
-}
-
-function handleMetaSignupMessageEvent(event) {
-  if (!isTrustedMetaOrigin(event.origin)) return;
-
-  let data = event.data;
-  if (typeof data === 'string') {
-    try {
-      data = JSON.parse(data);
-    } catch (_) {
-      return;
-    }
-  }
-
-  if (!data || data.type !== 'WA_EMBEDDED_SIGNUP') return;
-
-  if (String(data.event || '').toUpperCase().includes('FINISH')) {
-    metaSignupSessionInfo = data.data || {};
-    if ($('metaSignupStatus')) {
-      $('metaSignupStatus').textContent = 'Detail WABA diterima dari Meta. Menyimpan akun...';
-      $('metaSignupStatus').style.color = '#f59e0b';
-    }
-    scheduleMetaSignupCompletion();
-    return;
-  }
-
-  if (String(data.event || '').toUpperCase() === 'CANCEL') {
-    const errorMessage = data?.data?.error_message || '';
-    const currentStep = data?.data?.current_step || '';
-    const message = errorMessage
-      ? `Flow Meta dibatalkan: ${errorMessage}`
-      : `Flow Meta dibatalkan${currentStep ? ' pada langkah ' + currentStep : ''}.`;
-    if ($('metaSignupStatus')) {
-      $('metaSignupStatus').textContent = message;
-      $('metaSignupStatus').style.color = '#ef4444';
-    }
-    if ($('metaModalStatus')) {
-      $('metaModalStatus').textContent = message;
-      $('metaModalStatus').style.color = '#ef4444';
-    }
-  }
-}
-
-async function completeMetaSignup() {
-  if (metaSignupCompleting || !metaSignupState || !metaSignupCode) return;
-  metaSignupCompleting = true;
-  try {
-    const payload = {
-      state: metaSignupState,
-      code: metaSignupCode,
-      business_id: metaSignupSessionInfo?.business_id || '',
-      waba_id: metaSignupSessionInfo?.waba_id || '',
-      phone_number_id: metaSignupSessionInfo?.phone_number_id || '',
-      display_phone_number: metaSignupSessionInfo?.display_phone_number || '',
-      name: metaSignupSessionInfo?.business_name || ''
-    };
-    const data = await api('/meta/signup/complete', {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    });
-    const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
-    if ($('metaSignupStatus')) {
-      $('metaSignupStatus').textContent = warnings.length
-        ? 'WABA berhasil tersimpan, tetapi ada catatan lanjutan yang perlu dicek.'
-        : 'WABA berhasil ditambahkan dan siap dilanjutkan ke setup berikutnya.';
-      $('metaSignupStatus').style.color = warnings.length ? '#f59e0b' : '#22c55e';
-    }
-    closeMetaSignupModal();
-    await loadMetaAccounts();
-    showToast(warnings.length ? 'WABA tersimpan dengan catatan' : 'WABA berhasil ditambahkan', warnings.length ? 'warning' : 'success');
-    if (warnings.length) {
-      appendLog('Meta WABA warnings: ' + warnings.join(' | '), 'warning');
-    }
-  } catch (e) {
-    if ($('metaSignupStatus')) {
-      $('metaSignupStatus').textContent = 'Gagal menyelesaikan signup Meta: ' + e.message;
-      $('metaSignupStatus').style.color = '#ef4444';
-    }
-    if ($('metaModalStatus')) {
-      $('metaModalStatus').textContent = e.message;
-      $('metaModalStatus').style.color = '#ef4444';
-    }
-  } finally {
-    metaSignupCompleting = false;
-    metaSignupState = '';
-    metaSignupCode = '';
-    metaSignupSessionInfo = null;
-    if (metaSignupFallbackTimer) {
-      clearTimeout(metaSignupFallbackTimer);
-      metaSignupFallbackTimer = null;
-    }
-  }
-}
-
-async function connectMetaManual() {
-  const accessToken = $('metaManualAccessToken')?.value?.trim() || '';
-  const wabaId = $('metaManualWabaId')?.value?.trim() || '';
-  const name = $('metaManualName')?.value?.trim() || '';
-  if (!accessToken) {
-    if ($('metaManualStatus')) {
-      $('metaManualStatus').textContent = 'Access token wajib diisi';
-      $('metaManualStatus').style.color = '#ef4444';
-    }
-    return;
-  }
-  if (!wabaId) {
-    if ($('metaManualStatus')) {
-      $('metaManualStatus').textContent = 'WABA ID wajib diisi';
-      $('metaManualStatus').style.color = '#ef4444';
-    }
-    return;
-  }
-  try {
-    if ($('metaManualStatus')) {
-      $('metaManualStatus').textContent = 'Memvalidasi token dan mengambil data WABA dari Meta...';
-      $('metaManualStatus').style.color = '#f59e0b';
-    }
-    const data = await api('/meta/manual/connect', {
-      method: 'POST',
-      body: JSON.stringify({
-        access_token: accessToken,
-        waba_id: wabaId,
-        name
-      })
-    });
-    const warnings = Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [];
-    if ($('metaManualStatus')) {
-      $('metaManualStatus').textContent = warnings.length
-        ? 'Akun WABA tersimpan, tetapi masih ada catatan lanjutan yang perlu dicek.'
-        : 'Akun WABA berhasil dihubungkan secara manual.';
-      $('metaManualStatus').style.color = warnings.length ? '#f59e0b' : '#22c55e';
-    }
-    await loadMetaAccounts();
-    showToast(warnings.length ? 'WABA manual tersimpan dengan catatan' : 'WABA manual berhasil terhubung', warnings.length ? 'warning' : 'success');
-    if (warnings.length) {
-      appendLog('Meta WABA manual warnings: ' + warnings.join(' | '), 'warning');
-    }
-  } catch (e) {
-    if ($('metaManualStatus')) {
-      $('metaManualStatus').textContent = e.message;
-      $('metaManualStatus').style.color = '#ef4444';
-    }
-  }
-}
-
-async function loadMetaAccounts() {
-  const tbody = $('metaAccountsTableBody');
-  if (!tbody) return;
-  try {
-    const data = await api('/meta/accounts');
-    const accounts = data.accounts || [];
-    if ($('metaStatTotal')) $('metaStatTotal').textContent = accounts.length;
-    if ($('metaStatReady')) $('metaStatReady').textContent = accounts.filter(acc => (acc.status || '') === 'active').length;
-    if ($('metaStatPending')) $('metaStatPending').textContent = accounts.filter(acc => (acc.status || '') !== 'active').length;
-    if (!accounts.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">Belum ada akun WABA Cloud</td></tr>';
-      return;
-    }
-    tbody.innerHTML = accounts.map(acc => `
-      <tr>
-        <td>${escapeHtml(acc.name || 'WABA Cloud')}</td>
-        <td>${escapeHtml(acc.waba_id || '-')}</td>
-        <td>${escapeHtml(acc.phone_number_id || '-')}</td>
-        <td>${escapeHtml(acc.display_phone_number || '-')}</td>
-        <td><span class="feature-badge">${escapeHtml(acc.status || '-')}</span></td>
-        <td>${escapeHtml(acc.onboarding_status || '-')}</td>
-        <td>${acc.updated_at ? new Date(acc.updated_at).toLocaleString('id-ID') : '-'}</td>
-      </tr>
-    `).join('');
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">Gagal memuat akun WABA: ${escapeHtml(e.message)}</td></tr>`;
-  }
-}
-
 // ===== Settings =====
 async function loadSettings() {
   try {
@@ -4914,17 +4431,6 @@ document.addEventListener('DOMContentLoaded', () => {
     $(id)?.addEventListener('input', renderBroadcastPreview);
     $(id)?.addEventListener('change', renderBroadcastPreview);
   });
-  document.querySelectorAll('#metaSignupModal input[data-meta-check]').forEach((el) => {
-    el.addEventListener('change', () => {
-      const canLaunch = syncMetaSignupLaunchState();
-      if ($('metaModalStatus') && metaSignupSDKReady) {
-        $('metaModalStatus').textContent = canLaunch
-          ? 'Checklist lengkap. Anda bisa lanjut ke portal Facebook sekarang.'
-          : 'Centang semua checklist penting sebelum lanjut ke Facebook.';
-        $('metaModalStatus').style.color = canLaunch ? '#22c55e' : '#f59e0b';
-      }
-    });
-  });
 
   // Connect WebSocket
   connectWS();
@@ -4949,17 +4455,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       closeSidebar();
-      closeMetaSignupModal();
     }
-  });
-
-  window.addEventListener('message', (event) => {
-    if (event.origin === location.origin) {
-      if (!event.data || event.data.type !== 'meta_embedded_signup_callback') return;
-      completeMetaSignupFromCallback(event.data);
-      return;
-    }
-    handleMetaSignupMessageEvent(event);
   });
 
   // Periodic status check

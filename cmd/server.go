@@ -4,9 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/csv"
 	"encoding/hex"
@@ -21,7 +19,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/azkazamdigital/wa-gateway/config"
@@ -45,24 +42,6 @@ import (
 )
 
 var wsClients = make(map[*websocket.Conn]string)
-
-const (
-	metaAppIDPrefKey       = "meta_app_id"
-	metaAppSecretPrefKey   = "meta_app_secret"
-	metaConfigIDPrefKey    = "meta_config_id"
-	metaRedirectURIPrefKey = "meta_redirect_uri"
-	metaVerifyTokenPrefKey = "meta_verify_token"
-)
-
-type metaSignupState struct {
-	UserID    string
-	ExpiresAt time.Time
-}
-
-var (
-	metaSignupStatesMu sync.Mutex
-	metaSignupStates   = make(map[string]metaSignupState)
-)
 
 type imagePayload struct {
 	Data string `json:"data"`
@@ -237,7 +216,7 @@ func runServer(cmd_ *cobra.Command, args []string) {
 
 	app.Use(func(c *fiber.Ctx) error {
 		path := c.Path()
-		if strings.HasPrefix(path, "/assets") || path == "/" || path == "/panduan" || path == "/docs" || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/privacy-policy" || path == "/terms-of-service" || path == "/data-deletion" || path == "/data-deletion-status" || path == "/api/auth/login" || path == "/api/auth/register-trial" || path == "/api/auth/trial/request-otp" || path == "/api/auth/trial/verify-otp" || path == "/api/meta/signup/callback" || path == "/api/meta/webhook" || path == "/api/meta/data-deletion" {
+		if strings.HasPrefix(path, "/assets") || path == "/" || path == "/panduan" || path == "/docs" || path == "/icon.ico" || path == "/login" || path == "/health" || path == "/health/whatsapp" || path == "/privacy-policy" || path == "/terms-of-service" || path == "/data-deletion" || path == "/data-deletion-status" || path == "/api/auth/login" || path == "/api/auth/register-trial" || path == "/api/auth/trial/request-otp" || path == "/api/auth/trial/verify-otp" {
 			return c.Next()
 		}
 		if AuthService == nil {
@@ -985,51 +964,6 @@ func runServer(cmd_ *cobra.Command, args []string) {
 			"analysis":         analysis,
 			"improved_message": normalizeBroadcastAIText(parsed["improved_message"]),
 		})
-	})
-	api.Get("/admin/meta-config", func(c *fiber.Ctx) error {
-		user, err := currentUser(c)
-		if err != nil || !user.IsAdmin {
-			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
-		}
-		return c.JSON(fiber.Map{
-			"app_id":       Store.GetPref(metaAppIDPrefKey),
-			"app_secret":   Store.GetPref(metaAppSecretPrefKey),
-			"config_id":    Store.GetPref(metaConfigIDPrefKey),
-			"redirect_uri": Store.GetPref(metaRedirectURIPrefKey),
-			"verify_token": Store.GetPref(metaVerifyTokenPrefKey),
-		})
-	})
-	api.Post("/admin/meta-config", func(c *fiber.Ctx) error {
-		user, err := currentUser(c)
-		if err != nil || !user.IsAdmin {
-			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
-		}
-		var body struct {
-			AppID       string `json:"app_id"`
-			AppSecret   string `json:"app_secret"`
-			ConfigID    string `json:"config_id"`
-			RedirectURI string `json:"redirect_uri"`
-			VerifyToken string `json:"verify_token"`
-		}
-		if err := c.BodyParser(&body); err != nil {
-			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
-		}
-		if err := Store.SetPref(metaAppIDPrefKey, strings.TrimSpace(body.AppID)); err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-		}
-		if err := Store.SetPref(metaAppSecretPrefKey, strings.TrimSpace(body.AppSecret)); err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-		}
-		if err := Store.SetPref(metaConfigIDPrefKey, strings.TrimSpace(body.ConfigID)); err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-		}
-		if err := Store.SetPref(metaRedirectURIPrefKey, strings.TrimSpace(body.RedirectURI)); err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-		}
-		if err := Store.SetPref(metaVerifyTokenPrefKey, strings.TrimSpace(body.VerifyToken)); err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-		}
-		return c.JSON(fiber.Map{"status": "saved"})
 	})
 	api.Get("/admin/trial-otp-config", func(c *fiber.Ctx) error {
 		user, err := currentUser(c)
@@ -3552,62 +3486,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-type metaConfig struct {
-	AppID        string
-	AppSecret    string
-	ConfigID     string
-	RedirectURI  string
-	VerifyToken  string
-	GraphVersion string
-}
-
-func metaConfigFromStore(c *fiber.Ctx) metaConfig {
-	_ = c
-	if Store == nil {
-		return metaConfig{}
-	}
-	return metaConfig{
-		AppID:        strings.TrimSpace(Store.GetPref(metaAppIDPrefKey)),
-		AppSecret:    strings.TrimSpace(Store.GetPref(metaAppSecretPrefKey)),
-		ConfigID:     strings.TrimSpace(Store.GetPref(metaConfigIDPrefKey)),
-		RedirectURI:  strings.TrimSpace(Store.GetPref(metaRedirectURIPrefKey)),
-		VerifyToken:  strings.TrimSpace(Store.GetPref(metaVerifyTokenPrefKey)),
-		GraphVersion: metaGraphDefaultAPIVerion,
-	}
-}
-
-func issueMetaSignupState(userID string) (string, error) {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	state := hex.EncodeToString(buf)
-	metaSignupStatesMu.Lock()
-	defer metaSignupStatesMu.Unlock()
-	metaSignupStates[state] = metaSignupState{
-		UserID:    strings.TrimSpace(userID),
-		ExpiresAt: time.Now().Add(15 * time.Minute),
-	}
-	return state, nil
-}
-
-func consumeMetaSignupState(userID, state string) error {
-	metaSignupStatesMu.Lock()
-	defer metaSignupStatesMu.Unlock()
-	session, ok := metaSignupStates[strings.TrimSpace(state)]
-	if !ok {
-		return fmt.Errorf("state signup Meta tidak valid")
-	}
-	delete(metaSignupStates, strings.TrimSpace(state))
-	if time.Now().After(session.ExpiresAt) {
-		return fmt.Errorf("state signup Meta sudah kedaluwarsa")
-	}
-	if session.UserID != strings.TrimSpace(userID) {
-		return fmt.Errorf("state signup Meta tidak cocok dengan user login")
-	}
-	return nil
-}
-
 type legalSection struct {
 	Title string
 	Body  []string
@@ -3751,60 +3629,6 @@ func htmlEscape(s string) string {
 		"'", "&#39;",
 	)
 	return replacer.Replace(s)
-}
-
-type metaSignedRequestPayload struct {
-	Algorithm string `json:"algorithm"`
-	IssuedAt  int64  `json:"issued_at"`
-	UserID    string `json:"user_id"`
-}
-
-func parseMetaSignedRequest(signedRequest, appSecret string) (metaSignedRequestPayload, error) {
-	var payload metaSignedRequestPayload
-
-	parts := strings.SplitN(strings.TrimSpace(signedRequest), ".", 2)
-	if len(parts) != 2 {
-		return payload, fmt.Errorf("format signed_request tidak valid")
-	}
-
-	signature, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return payload, fmt.Errorf("signature signed_request tidak valid")
-	}
-
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return payload, fmt.Errorf("payload signed_request tidak valid")
-	}
-
-	if secret := strings.TrimSpace(appSecret); secret != "" {
-		mac := hmac.New(sha256.New, []byte(secret))
-		if _, err := mac.Write([]byte(parts[1])); err != nil {
-			return payload, fmt.Errorf("gagal memverifikasi signed_request")
-		}
-		expected := mac.Sum(nil)
-		if !hmac.Equal(signature, expected) {
-			return payload, fmt.Errorf("signature signed_request tidak cocok")
-		}
-	}
-
-	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-		return payload, fmt.Errorf("payload signed_request tidak dapat dibaca")
-	}
-
-	if payload.Algorithm != "" && !strings.EqualFold(payload.Algorithm, "HMAC-SHA256") {
-		return payload, fmt.Errorf("algoritma signed_request tidak didukung")
-	}
-
-	return payload, nil
-}
-
-func issueMetaDeletionConfirmationCode() (string, error) {
-	var token [12]byte
-	if _, err := rand.Read(token[:]); err != nil {
-		return "", fmt.Errorf("gagal membuat kode konfirmasi")
-	}
-	return hex.EncodeToString(token[:]), nil
 }
 
 func sanitizeAIProductAssetName(name string) string {

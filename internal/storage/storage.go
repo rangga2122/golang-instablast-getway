@@ -3,7 +3,6 @@ package storage
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -130,22 +129,6 @@ type BroadcastSchedule struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-type MetaWABAAccount struct {
-	ID                 int64     `json:"id"`
-	Name               string    `json:"name"`
-	BusinessID         string    `json:"business_id"`
-	WABAID             string    `json:"waba_id"`
-	PhoneNumberID      string    `json:"phone_number_id"`
-	DisplayPhoneNumber string    `json:"display_phone_number"`
-	Status             string    `json:"status"`
-	OnboardingStatus   string    `json:"onboarding_status"`
-	AccessToken        string    `json:"-"`
-	TokenType          string    `json:"-"`
-	TokenExpiresAt     time.Time `json:"token_expires_at"`
-	CreatedAt          time.Time `json:"created_at"`
-	UpdatedAt          time.Time `json:"updated_at"`
-}
-
 // Storage handles all database operations
 type Storage struct {
 	db   *sql.DB
@@ -265,22 +248,6 @@ func (s *Storage) initSchema() {
 			last_error TEXT NOT NULL DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE IF NOT EXISTS meta_waba_accounts (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL DEFAULT '',
-			business_id TEXT NOT NULL DEFAULT '',
-			waba_id TEXT NOT NULL DEFAULT '',
-			phone_number_id TEXT NOT NULL DEFAULT '',
-			display_phone_number TEXT NOT NULL DEFAULT '',
-			status TEXT NOT NULL DEFAULT 'draft',
-			onboarding_status TEXT NOT NULL DEFAULT 'not_started',
-			access_token TEXT NOT NULL DEFAULT '',
-			token_type TEXT NOT NULL DEFAULT '',
-			token_expires_at DATETIME,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE(waba_id, phone_number_id)
 		)`,
 	}
 
@@ -948,97 +915,6 @@ func (s *Storage) DeleteUnsubscribedContact(id int64) error {
 	return err
 }
 
-// === Meta WABA Accounts ===
-
-func (s *Storage) ListMetaWABAAccounts() ([]MetaWABAAccount, error) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	rows, err := s.db.Query(`SELECT id, name, business_id, waba_id, phone_number_id, display_phone_number, status, onboarding_status, access_token, token_type, token_expires_at, created_at, updated_at FROM meta_waba_accounts ORDER BY updated_at DESC, id DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var items []MetaWABAAccount
-	for rows.Next() {
-		var item MetaWABAAccount
-		var tokenExpiresAt sql.NullTime
-		if err := rows.Scan(
-			&item.ID,
-			&item.Name,
-			&item.BusinessID,
-			&item.WABAID,
-			&item.PhoneNumberID,
-			&item.DisplayPhoneNumber,
-			&item.Status,
-			&item.OnboardingStatus,
-			&item.AccessToken,
-			&item.TokenType,
-			&tokenExpiresAt,
-			&item.CreatedAt,
-			&item.UpdatedAt,
-		); err != nil {
-			continue
-		}
-		if tokenExpiresAt.Valid {
-			item.TokenExpiresAt = tokenExpiresAt.Time
-		}
-		items = append(items, item)
-	}
-	return items, nil
-}
-
-func (s *Storage) SaveMetaWABAAccount(item *MetaWABAAccount) error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
-	if item == nil {
-		return fmt.Errorf("meta account is nil")
-	}
-	if strings.TrimSpace(item.WABAID) == "" && strings.TrimSpace(item.PhoneNumberID) == "" && item.ID == 0 {
-		return fmt.Errorf("waba_id atau phone_number_id wajib diisi")
-	}
-
-	if item.ID > 0 {
-		_, err := s.db.Exec(
-			`UPDATE meta_waba_accounts
-			 SET name = ?, business_id = ?, waba_id = ?, phone_number_id = ?, display_phone_number = ?, status = ?, onboarding_status = ?, access_token = ?, token_type = ?, token_expires_at = ?, updated_at = CURRENT_TIMESTAMP
-			 WHERE id = ?`,
-			item.Name, item.BusinessID, item.WABAID, item.PhoneNumberID, item.DisplayPhoneNumber, item.Status, item.OnboardingStatus, item.AccessToken, item.TokenType, nullableTime(item.TokenExpiresAt), item.ID,
-		)
-		return err
-	}
-
-	res, err := s.db.Exec(
-		`INSERT INTO meta_waba_accounts (name, business_id, waba_id, phone_number_id, display_phone_number, status, onboarding_status, access_token, token_type, token_expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(waba_id, phone_number_id) DO UPDATE SET
-			name = excluded.name,
-			business_id = excluded.business_id,
-			display_phone_number = excluded.display_phone_number,
-			status = excluded.status,
-			onboarding_status = excluded.onboarding_status,
-			access_token = excluded.access_token,
-			token_type = excluded.token_type,
-			token_expires_at = excluded.token_expires_at,
-			updated_at = CURRENT_TIMESTAMP`,
-		item.Name, item.BusinessID, item.WABAID, item.PhoneNumberID, item.DisplayPhoneNumber, item.Status, item.OnboardingStatus, item.AccessToken, item.TokenType, nullableTime(item.TokenExpiresAt),
-	)
-	if err != nil {
-		return err
-	}
-	item.ID, _ = res.LastInsertId()
-	return nil
-}
-
-func nullableTime(t time.Time) interface{} {
-	if t.IsZero() {
-		return nil
-	}
-	return t
-}
-
 func parseSQLiteTime(raw string) time.Time {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -1066,4 +942,11 @@ func parseSQLiteTime(raw string) time.Time {
 // Close closes the database
 func (s *Storage) Close() error {
 	return s.db.Close()
+}
+
+func nullableTime(t time.Time) interface{} {
+	if t.IsZero() {
+		return nil
+	}
+	return t
 }
