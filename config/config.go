@@ -27,9 +27,6 @@ var (
 	WhatsappAutoReplyMessage    = ""
 	WhatsappAccountValidation   = true
 	WhatsappLogLevel            = "ERROR"
-	WhatsappAIEndpoint          = "https://integrate.api.nvidia.com/v1/chat/completions"
-	WhatsappAIModel             = "openai/gpt-oss-120b"
-	WhatsappAIMaxTokens         = 512
 	WhatsappAIRequestTimeoutSec = 90
 
 	// Paths
@@ -56,9 +53,6 @@ func init() {
 	TrialMaxDevices = envInt("TRIAL_MAX_DEVICES", TrialMaxDevices)
 	TrialOTPTTLMinutes = envInt("TRIAL_OTP_TTL_MINUTES", TrialOTPTTLMinutes)
 	TrialOTPMaxVerifyAttempts = envInt("TRIAL_OTP_MAX_VERIFY_ATTEMPTS", TrialOTPMaxVerifyAttempts)
-	WhatsappAIEndpoint = envString("WHATSAPP_AI_ENDPOINT", WhatsappAIEndpoint)
-	WhatsappAIModel = envString("WHATSAPP_AI_MODEL", WhatsappAIModel)
-	WhatsappAIMaxTokens = envInt("WHATSAPP_AI_MAX_TOKENS", WhatsappAIMaxTokens)
 	WhatsappAIRequestTimeoutSec = envInt("WHATSAPP_AI_REQUEST_TIMEOUT_SEC", WhatsappAIRequestTimeoutSec)
 	CosmicMCPKey = envString("COSMIC_MCP_KEY", "")
 }

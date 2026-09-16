@@ -1,7 +1,6 @@
 package ai
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -37,8 +36,6 @@ const (
 	visionRequestTimeout = 90 * time.Second
 	maxHistoryLimit      = 50
 	maxTrackedChats      = 500
-	desktopAPIKey        = "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"
-	visionModel          = "nvidia/nemotron-nano-12b-v2-vl"
 	systemOngkirBaseURL  = "https://app.maukirim.id"
 	systemOngkirAreasURL = systemOngkirBaseURL + "/json/kecamatan001.json"
 	systemOngkirRatesURL = systemOngkirBaseURL + "/cek-ongkir/ekspedisi"
@@ -52,7 +49,6 @@ var (
 	reCodeBlock           = regexp.MustCompile("```[\\s\\S]*?```")
 	reInlineCode          = regexp.MustCompile("`(.+?)`")
 	reManyNL              = regexp.MustCompile(`\n{3,}`)
-	globalAPIKeyProvider  func() string
 	systemOngkirAreaCache struct {
 		mu        sync.Mutex
 		expiresAt time.Time
@@ -225,10 +221,6 @@ func NewService(logger LoggerFunc) *Service {
 	}
 }
 
-func SetGlobalAPIKeyProvider(fn func() string) {
-	globalAPIKeyProvider = fn
-}
-
 func (s *Service) SetAssetDir(dir string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -249,7 +241,6 @@ func defaultSettings() Settings {
 }
 
 func sanitizeSettings(s Settings) Settings {
-	s.APIKey = normalizeAPIKey(s.APIKey)
 	s.Instruction = strings.TrimSpace(s.Instruction)
 	s.ProductInfo = strings.TrimSpace(s.ProductInfo)
 	s.RajaOngkirAPIKey = strings.TrimSpace(s.RajaOngkirAPIKey)
@@ -738,9 +729,8 @@ func (s *Service) prepareUserSegment(ctx context.Context, settings Settings, par
 }
 
 func (s *Service) generateReply(ctx context.Context, settings Settings, accountID string, history []chatTurn, userText string) (string, error) {
-	apiKey := effectiveAPIKey(settings)
-	if apiKey == "" && !CosmicMCPEnabled() {
-		return "", fmt.Errorf("api key AI belum diisi")
+	if !CosmicMCPEnabled() {
+		return "", fmt.Errorf("AI belum dikonfigurasi (COSMIC_MCP_KEY kosong)")
 	}
 
 	systemPrompt := buildSystemPrompt(settings, accountID)
@@ -759,10 +749,7 @@ func (s *Service) generateReply(ctx context.Context, settings Settings, accountI
 		"role":    "user",
 		"content": userText,
 	})
-	if CosmicMCPEnabled() {
-		return s.cosmicChatCompletion(ctx, messages)
-	}
-	return s.doNvidiaChatCompletion(ctx, apiKey, messages)
+	return s.cosmicChatCompletion(ctx, messages)
 }
 
 func (s *Service) generateReplyFromParts(ctx context.Context, settings Settings, accountID string, history []chatTurn, parts []pendingPart) (string, error) {
@@ -782,104 +769,6 @@ func (s *Service) generateReplyFromParts(ctx context.Context, settings Settings,
 		userText = "Ringkas dan jawab gabungan beberapa pesan berikut:\n- " + strings.Join(userSegments, "\n- ")
 	}
 	return s.generateReply(ctx, settings, accountID, history, userText)
-}
-
-func (s *Service) doNvidiaChatCompletion(ctx context.Context, apiKey string, messages []map[string]interface{}) (string, error) {
-	payload := map[string]interface{}{
-		"model":       config.WhatsappAIModel,
-		"messages":    messages,
-		"max_tokens":  config.WhatsappAIMaxTokens,
-		"temperature": 1.0,
-		"top_p":       1.0,
-		"stream":      false,
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-
-	reqCtx := ctx
-	if reqCtx == nil {
-		reqCtx = context.Background()
-	}
-	reqCtx, cancel := context.WithTimeout(reqCtx, time.Duration(config.WhatsappAIRequestTimeoutSec)*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, config.WhatsappAIEndpoint, bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("ai api status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
-	}
-
-	var parsed struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return "", err
-	}
-	if len(parsed.Choices) == 0 {
-		return "", fmt.Errorf("respons AI tidak memiliki choices")
-	}
-	return parsed.Choices[0].Message.Content, nil
-}
-
-func readNvidiaAssistantStream(reader io.Reader) (string, error) {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	var out strings.Builder
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, ":") || !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" || data == "[DONE]" {
-			continue
-		}
-		var chunk struct {
-			Choices []struct {
-				Delta struct {
-					Content string `json:"content"`
-				} `json:"delta"`
-			} `json:"choices"`
-		}
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
-		}
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-		out.WriteString(chunk.Choices[0].Delta.Content)
-	}
-	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("gagal membaca stream NVIDIA AI: %w", err)
-	}
-	content := strings.TrimSpace(out.String())
-	if content == "" {
-		return "", fmt.Errorf("NVIDIA AI mengembalikan stream kosong")
-	}
-	return content, nil
 }
 
 func buildIncomingTextContext(parts []pendingPart) (string, string) {
@@ -974,108 +863,11 @@ func (s *Service) extractImageInsight(ctx context.Context, settings Settings, im
 	if strings.TrimSpace(text) == "" {
 		return "", "", fmt.Errorf("vision tidak menghasilkan analisa gambar")
 	}
-	return text, visionModel, nil
+	return text, "cosmic-mcp", nil
 }
 
 func (s *Service) runVisionAnalysis(ctx context.Context, settings Settings, imageData []byte, mimeType, caption string) (string, error) {
-	if CosmicMCPEnabled() {
-		return s.cosmicVisionAnalysis(ctx, imageData, mimeType, caption)
-	}
-	apiKey := effectiveAPIKey(settings)
-	if apiKey == "" {
-		return "", fmt.Errorf("api key AI belum diisi")
-	}
-	if len(imageData) == 0 {
-		return "", fmt.Errorf("data gambar kosong")
-	}
-	if mimeType == "" {
-		mimeType = http.DetectContentType(imageData)
-	}
-
-	prompt := "Analisa gambar ini dengan teliti dalam bahasa Indonesia. Baca detail dulu sebelum menyimpulkan. Jika ada teks, salin teks penting secara akurat. Jika ada angka, harga, ukuran, warna, nama produk, nama toko, bukti transfer, resi, alamat, atau status pembayaran, sebutkan jelas. Jika ini screenshot chat/promosi/produk/dokumen, ringkas poin pentingnya secara rapi lalu simpulkan konteks utama gambar."
-	if strings.TrimSpace(caption) != "" {
-		prompt += "\nCaption user: " + strings.TrimSpace(caption)
-	}
-
-	payload := map[string]interface{}{
-		"model": visionModel,
-		"messages": []map[string]interface{}{
-			{
-				"role":    "system",
-				"content": "/think",
-			},
-			{
-				"role": "user",
-				"content": []map[string]interface{}{
-					{
-						"type": "text",
-						"text": prompt,
-					},
-					{
-						"type": "image_url",
-						"image_url": map[string]string{
-							"url": fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(imageData)),
-						},
-					},
-				},
-			},
-		},
-		"max_tokens":        4096,
-		"temperature":       1.0,
-		"top_p":             1.0,
-		"frequency_penalty": 0.0,
-		"presence_penalty":  0.0,
-		"stream":            false,
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-
-	reqCtx := ctx
-	if reqCtx == nil {
-		reqCtx = context.Background()
-	}
-	reqCtx, cancel := context.WithTimeout(reqCtx, visionRequestTimeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, config.WhatsappAIEndpoint, bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("vision api status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
-	}
-
-	var parsed struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return "", err
-	}
-	if len(parsed.Choices) == 0 {
-		return "", fmt.Errorf("respons vision tidak memiliki choices")
-	}
-	return strings.TrimSpace(parsed.Choices[0].Message.Content), nil
+	return s.cosmicVisionAnalysis(ctx, imageData, mimeType, caption)
 }
 
 func (s *Service) remember(chatID, role, content string, maxHistory int) {
@@ -2274,52 +2066,10 @@ func accountAllowed(accountID string, allowed []string) bool {
 	return false
 }
 
-func normalizeAPIKey(apiKey string) string {
-	apiKey = strings.TrimSpace(apiKey)
-	if apiKey == "" {
-		return ""
-	}
-	masked := strings.Trim(apiKey, "*•. ")
-	if masked == "" {
-		return ""
-	}
-	if !strings.HasPrefix(apiKey, "nvapi-") {
-		return ""
-	}
-	return apiKey
-}
-
-func effectiveAPIKey(settings Settings) string {
-	if apiKey := normalizeAPIKey(settings.APIKey); apiKey != "" {
-		return apiKey
-	}
-	if globalAPIKeyProvider != nil {
-		if apiKey := normalizeAPIKey(globalAPIKeyProvider()); apiKey != "" {
-			return apiKey
-		}
-	}
-	if desktop := loadDesktopSettings(); desktop != nil {
-		if apiKey := normalizeAPIKey(desktop.APIKey); apiKey != "" {
-			return apiKey
-		}
-	}
-	if desktopAPIKey != "" {
-		return desktopAPIKey
-	}
-	return strings.TrimSpace(os.Getenv("NVIDIA_API_KEY"))
-}
-
-func ResolveAPIKey() string {
-	return effectiveAPIKey(Settings{})
-}
-
 func mergeDesktopDefaults(settings Settings) Settings {
 	desktop := loadDesktopSettings()
 	if desktop == nil {
 		return settings
-	}
-	if strings.TrimSpace(settings.APIKey) == "" {
-		settings.APIKey = normalizeAPIKey(desktop.APIKey)
 	}
 	if strings.TrimSpace(settings.Instruction) == "" {
 		settings.Instruction = strings.TrimSpace(desktop.Instruction)
@@ -2355,10 +2105,9 @@ func loadDesktopSettings() *desktopSettings {
 		if err := json.Unmarshal([]byte(rawAI), &parsed); err != nil {
 			continue
 		}
-		if normalizeAPIKey(parsed.APIKey) == "" && strings.TrimSpace(parsed.Instruction) == "" && strings.TrimSpace(parsed.Product) == "" && parsed.DelayMs == 0 {
+		if strings.TrimSpace(parsed.Instruction) == "" && strings.TrimSpace(parsed.Product) == "" && parsed.DelayMs == 0 {
 			continue
 		}
-		parsed.APIKey = normalizeAPIKey(parsed.APIKey)
 		parsed.Instruction = strings.TrimSpace(parsed.Instruction)
 		parsed.Product = strings.TrimSpace(parsed.Product)
 		return &parsed

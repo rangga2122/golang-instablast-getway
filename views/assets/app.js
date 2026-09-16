@@ -1395,7 +1395,6 @@ function switchTab(tab) {
   }
   if (paneTab === 'admin') {
     loadAdminUsers();
-    loadAdminAIConfig();
     loadAdminTrialOTPConfig();
     loadAdminTrialOTPStatus();
   }
@@ -4183,19 +4182,6 @@ async function deleteManagedUser(id, email) {
   }
 }
 
-async function loadAdminAIConfig() {
-  if (!currentUser?.is_admin) return;
-  try {
-    const data = await api('/admin/ai-config');
-    if ($('adminGlobalApiKey')) $('adminGlobalApiKey').value = data.global_api_key || '';
-  } catch (e) {
-    if ($('adminAIStatus')) {
-      $('adminAIStatus').textContent = e.message;
-      $('adminAIStatus').style.color = '#ef4444';
-    }
-  }
-}
-
 function setAdminTrialOTPText(id, message, color) {
   if (!$(id)) return;
   $(id).textContent = message || '';
@@ -4328,27 +4314,6 @@ async function logoutAdminTrialOTP() {
     await loadAdminTrialOTPStatus();
   } catch (e) {
     setAdminTrialOTPText('adminTrialOTPDeviceStatus', e.message, '#ef4444');
-  }
-}
-
-async function saveAdminAIConfig() {
-  if (!currentUser?.is_admin) return;
-  try {
-    await api('/admin/ai-config', {
-      method: 'POST',
-      body: JSON.stringify({
-        global_api_key: $('adminGlobalApiKey')?.value?.trim() || ''
-      })
-    });
-    if ($('adminAIStatus')) {
-      $('adminAIStatus').textContent = 'API key global berhasil disimpan';
-      $('adminAIStatus').style.color = '#22c55e';
-    }
-  } catch (e) {
-    if ($('adminAIStatus')) {
-      $('adminAIStatus').textContent = e.message;
-      $('adminAIStatus').style.color = '#ef4444';
-    }
   }
 }
 

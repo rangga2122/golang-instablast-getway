@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -53,40 +51,6 @@ type broadcastAIHelperRequest struct {
 	Mode      string   `json:"mode"`
 	Message   string   `json:"message"`
 	Variables []string `json:"variables"`
-}
-
-type nvidiaChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type nvidiaChatRequest struct {
-	Model       string              `json:"model"`
-	Messages    []nvidiaChatMessage `json:"messages"`
-	Temperature float64             `json:"temperature"`
-	TopP        float64             `json:"top_p"`
-	MaxTokens   int                 `json:"max_tokens"`
-	Stream      bool                `json:"stream"`
-}
-
-type nvidiaChatResponse struct {
-	Choices []struct {
-		Message nvidiaChatMessage `json:"message"`
-	} `json:"choices"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
-}
-
-type nvidiaChatStreamChunk struct {
-	Choices []struct {
-		Delta struct {
-			Content string `json:"content"`
-		} `json:"delta"`
-	} `json:"choices"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
 }
 
 func decodeImagePayloads(items []imagePayload, legacyB64, legacyMime string) ([]broadcast.MediaItem, []imagePayload, error) {
@@ -884,31 +848,6 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		}
 		return c.JSON(fiber.Map{"status": "deleted"})
 	})
-	api.Get("/admin/ai-config", func(c *fiber.Ctx) error {
-		user, err := currentUser(c)
-		if err != nil || !user.IsAdmin {
-			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
-		}
-		return c.JSON(fiber.Map{
-			"global_api_key": Store.GetPref("global_nvidia_api_key"),
-		})
-	})
-	api.Post("/admin/ai-config", func(c *fiber.Ctx) error {
-		user, err := currentUser(c)
-		if err != nil || !user.IsAdmin {
-			return c.Status(403).JSON(fiber.Map{"error": "Forbidden"})
-		}
-		var body struct {
-			GlobalAPIKey string `json:"global_api_key"`
-		}
-		if err := c.BodyParser(&body); err != nil {
-			return c.Status(400).JSON(fiber.Map{"error": "Invalid request"})
-		}
-		if err := Store.SetPref("global_nvidia_api_key", strings.TrimSpace(body.GlobalAPIKey)); err != nil {
-			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
-		}
-		return c.JSON(fiber.Map{"status": "saved", "global_api_key": Store.GetPref("global_nvidia_api_key")})
-	})
 	api.Post("/broadcast/ai-helper", func(c *fiber.Ctx) error {
 		user, err := currentUser(c)
 		if err != nil {
@@ -932,13 +871,12 @@ func runServer(cmd_ *cobra.Command, args []string) {
 		if body.Mode != "analyze" && body.Mode != "spintax" {
 			return c.Status(400).JSON(fiber.Map{"error": "Mode AI tidak dikenal"})
 		}
-		apiKey := strings.TrimSpace(ai.ResolveAPIKey())
-		if apiKey == "" {
-			return c.Status(400).JSON(fiber.Map{"error": "API key NVIDIA belum valid. Simpan API key yang diawali nvapi- di menu Admin"})
+		if !ai.CosmicMCPEnabled() {
+			return c.Status(503).JSON(fiber.Map{"error": "AI belum dikonfigurasi di server"})
 		}
 
 		prompt := buildBroadcastAIHelperPrompt(body)
-		content, err := callNvidiaBroadcastAssistant(c.UserContext(), apiKey, prompt, body.Mode == "spintax")
+		content, err := callCosmicBroadcastAssistant(c.UserContext(), prompt)
 		if err != nil {
 			return c.Status(502).JSON(fiber.Map{"error": err.Error()})
 		}
@@ -2777,145 +2715,10 @@ Pesan:
 %s`, baseRules, variableHint, body.Message)
 }
 
-func callNvidiaBroadcastAssistant(ctx context.Context, apiKey, prompt string, creative bool) (string, error) {
-	temperature := 0.65
-	if creative {
-		temperature = 1.0
-	}
-	payload := nvidiaChatRequest{
-		Model: config.WhatsappAIModel,
-		Messages: []nvidiaChatMessage{
-			{Role: "user", Content: prompt},
-		},
-		Temperature: temperature,
-		TopP:        0.95,
-		MaxTokens:   4096,
-		Stream:      true,
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-	reqCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-	var lastErr error
-	for attempt := 1; attempt <= 3; attempt++ {
-		content, retry, err := doNvidiaBroadcastAssistantRequest(reqCtx, apiKey, raw)
-		if err == nil {
-			return content, nil
-		}
-		lastErr = err
-		if !retry || attempt == 3 {
-			break
-		}
-		select {
-		case <-reqCtx.Done():
-			return "", reqCtx.Err()
-		case <-time.After(time.Duration(attempt) * 1500 * time.Millisecond):
-		}
-	}
-	return "", lastErr
-}
-
-func doNvidiaBroadcastAssistantRequest(ctx context.Context, apiKey string, raw []byte) (string, bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, config.WhatsappAIEndpoint, bytes.NewReader(raw))
-	if err != nil {
-		return "", false, err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", true, fmt.Errorf("gagal menghubungi NVIDIA AI: %w", err)
-	}
-	defer res.Body.Close()
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(res.Body, 4*1024*1024))
-		cleanBody := strings.TrimSpace(string(body))
-		retry := res.StatusCode == http.StatusTooManyRequests || res.StatusCode >= 500
-		return "", retry, fmt.Errorf("NVIDIA AI error %d: %s", res.StatusCode, cleanNvidiaErrorBody(cleanBody))
-	}
-	contentType := strings.ToLower(res.Header.Get("Content-Type"))
-	if strings.Contains(contentType, "text/event-stream") || strings.Contains(contentType, "stream") {
-		content, err := readNvidiaStreamResponse(res.Body)
-		if err != nil {
-			return "", true, err
-		}
-		return content, false, nil
-	}
-	body, _ := io.ReadAll(io.LimitReader(res.Body, 4*1024*1024))
-	var parsed nvidiaChatResponse
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return "", false, fmt.Errorf("respons NVIDIA AI tidak valid: %w", err)
-	}
-	if parsed.Error != nil && strings.TrimSpace(parsed.Error.Message) != "" {
-		return "", false, fmt.Errorf("NVIDIA AI: %s", strings.TrimSpace(parsed.Error.Message))
-	}
-	if len(parsed.Choices) == 0 {
-		return "", true, fmt.Errorf("NVIDIA AI tidak mengembalikan pilihan jawaban")
-	}
-	content := strings.TrimSpace(parsed.Choices[0].Message.Content)
-	if content == "" {
-		return "", true, fmt.Errorf("NVIDIA AI mengembalikan jawaban kosong")
-	}
-	return content, false, nil
-}
-
-func readNvidiaStreamResponse(reader io.Reader) (string, error) {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	var out strings.Builder
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, ":") {
-			continue
-		}
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" || data == "[DONE]" {
-			continue
-		}
-		var chunk nvidiaChatStreamChunk
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
-		}
-		if chunk.Error != nil && strings.TrimSpace(chunk.Error.Message) != "" {
-			return "", fmt.Errorf("NVIDIA AI: %s", strings.TrimSpace(chunk.Error.Message))
-		}
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-		out.WriteString(chunk.Choices[0].Delta.Content)
-	}
-	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("gagal membaca stream NVIDIA AI: %w", err)
-	}
-	content := strings.TrimSpace(out.String())
-	if content == "" {
-		return "", fmt.Errorf("NVIDIA AI mengembalikan stream kosong")
-	}
-	return content, nil
-}
-
-func cleanNvidiaErrorBody(body string) string {
-	body = strings.TrimSpace(body)
-	if body == "" {
-		return "respons kosong"
-	}
-	lower := strings.ToLower(body)
-	if strings.Contains(lower, "<html") {
-		if strings.Contains(lower, "bad gateway") {
-			return "Bad Gateway dari NVIDIA, silakan coba lagi"
-		}
-		return "respons HTML dari NVIDIA, silakan coba lagi"
-	}
-	if len(body) > 500 {
-		return body[:500] + "..."
-	}
-	return body
+// callCosmicBroadcastAssistant memakai Cosmic MCP (chat_text) sebagai otak AI broadcast.
+func callCosmicBroadcastAssistant(ctx context.Context, prompt string) (string, error) {
+	svc := ai.NewService(nil)
+	return svc.CosmicChatText(ctx, prompt)
 }
 
 func parseBroadcastAIJSON(content string) map[string]string {

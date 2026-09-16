@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/azkazamdigital/wa-gateway/config"
-	"github.com/azkazamdigital/wa-gateway/internal/ai"
 	"github.com/azkazamdigital/wa-gateway/internal/auth"
 	"github.com/azkazamdigital/wa-gateway/internal/storage"
 	tenantpkg "github.com/azkazamdigital/wa-gateway/internal/tenant"
@@ -73,9 +72,6 @@ func initApp() {
 	}
 	AuthService = auth.NewService(Store)
 	initTrialOTPVerifierManager()
-	ai.SetGlobalAPIKeyProvider(func() string {
-		return Store.GetPref("global_nvidia_api_key")
-	})
 	TenantManager = tenantpkg.NewManager(Store, filepath.Join(config.PathStorages, "tenants"), func(msg, level string) {
 		broadcastWSLog(msg, level)
 	})

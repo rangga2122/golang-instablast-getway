@@ -209,3 +209,15 @@ func (s *Service) cosmicVisionAnalysis(ctx context.Context, imageData []byte, mi
 		},
 	})
 }
+
+// CosmicChatText runs a single prompt through Cosmic MCP chat_text
+// (dipakai assistant broadcast di cmd layer).
+func (s *Service) CosmicChatText(ctx context.Context, prompt string) (string, error) {
+	if !CosmicMCPEnabled() {
+		return "", fmt.Errorf("AI belum dikonfigurasi (COSMIC_MCP_KEY kosong)")
+	}
+	c := newCosmicMCPClient()
+	return c.callTool(ctx, "chat_text", map[string]interface{}{
+		"prompt": prompt,
+	})
+}
